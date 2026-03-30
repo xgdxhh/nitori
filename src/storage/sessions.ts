@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface SessionMessage {
@@ -91,7 +91,7 @@ class FileSessionStorage implements SessionStorage {
         stream.end();
       }
     } else {
-      mkdirSync(filePath, { recursive: true });
+      writeFileSync(filePath, "", { flag: "w" });
     }
   }
 

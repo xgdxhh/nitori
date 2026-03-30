@@ -327,8 +327,8 @@ async function _run(
   }
 }
 
-function getModel(profile: { provider: string; model: string; apiKey?: string }): LanguageModel {
-  const { provider, model: modelId, apiKey } = profile;
+function getModel(profile: { provider: string; model: string; apiKey?: string; baseUrl?: string }): LanguageModel {
+  const { provider, model: modelId, apiKey, baseUrl } = profile;
 
   switch (provider) {
     case "anthropic": {
@@ -337,6 +337,11 @@ function getModel(profile: { provider: string; model: string; apiKey?: string })
       return client(modelId);
     }
     case "openai": {
+      if (baseUrl) {
+        const { createOpenAICompatible } = require("@ai-sdk/openai-compatible");
+        const client = createOpenAICompatible({ baseURL: baseUrl, apiKey: apiKey || process.env.OPENAI_API_KEY });
+        return client(modelId);
+      }
       const { createOpenAI } = require("@ai-sdk/openai");
       const client = createOpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY });
       return client(modelId);

@@ -99,7 +99,6 @@ Run `nitori chat` for interactive terminal chat.
       "default": {
         "provider": "anthropic",
         "model": "claude-sonnet-4-5",
-        "authMode": "apiKey",
         "apiKey": "<key>"
       }
     }
