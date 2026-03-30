@@ -6,7 +6,6 @@ import { BUILTIN_TEMPLATE_DOCS, TEMPLATE_DOC_NAMES, EXTRA_DOCS, EXTRA_DOC_NAMES 
 
 export interface AppConfig {
   workspaceDir: string;
-  dbPath: string;
   ingress: {
     host: string;
     port: number;
@@ -93,14 +92,13 @@ export function loadConfig(): AppConfig {
   return {
     ...parsed,
     workspaceDir: home,
-    dbPath: resolvePath(join(home, "db", "nitori.sqlite"), home),
     llm: { profiles, activeName },
   } as AppConfig;
 }
 
 
 export function ensureWorkspaceLayout(workspaceDir: string): void {
-  const dirs = ["db", ".agents/skills", "files", "extensions", "documents"];
+  const dirs = [".agents/skills", "files", "extensions", "documents"];
   mkdirSync(workspaceDir, { recursive: true });
   dirs.forEach(d => mkdirSync(join(workspaceDir, d), { recursive: true }));
   TEMPLATE_DOC_NAMES.forEach(name => {
