@@ -8,7 +8,7 @@ export function createCronJobTool(ctx: ToolContext): Tool {
     description: "Manage internal schedules for the current channel. Use create, list, get, update, or cancel. Not OS crontab.",
     inputSchema: z.object({
       op: z.enum(["create", "list", "get", "update", "cancel"]).describe("Operation to perform"),
-      id: z.number().optional().describe("Schedule id for get, update, or cancel"),
+      id: z.string().optional().describe("Schedule id for get, update, or cancel"),
       kind: z.enum(["once", "cron"]).optional().describe("Schedule kind"),
       prompt: z.string().optional().describe("Message text sent back to the agent when the schedule fires"),
       schedule: z.string().optional().describe("For kind=once use a datetime string. For kind=cron use a cron expression"),
@@ -16,14 +16,13 @@ export function createCronJobTool(ctx: ToolContext): Tool {
       limit: z.number().optional().describe("Max schedules to return for list"),
     }),
     execute: async (params) => {
-      const request = params as CronJobRequest;
-      const result = await ctx.cronJob(request);
+      const result = await ctx.cronJob(params as CronJobRequest);
 
-      if (request.op === "list") {
+      if (params.op === "list") {
         return { ...result, schedules: result.schedules || [] };
       }
 
-      if (request.op === "get") {
+      if (params.op === "get") {
         return { ...result, schedule: result.schedule || null };
       }
 

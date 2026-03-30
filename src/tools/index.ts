@@ -4,8 +4,6 @@ import type { ToolFactory } from "../extension/types.ts";
 import { createBuiltInCodingTools } from "./builtins.ts";
 import { createAttachTool } from "./attach.ts";
 import { createCronJobTool } from "./cron.ts";
-import { createReadInboxTool } from "./inbox.ts";
-import { createGetInboxMessageTool } from "./inbox-get.ts";
 import { createReplyTool, createSendTool } from "./message-action.ts";
 import { createFetchImageTool } from "./fetch-image.ts";
 import { createReactMessageTool } from "./react-message.ts";
@@ -19,8 +17,6 @@ export function createToolset(ctx: ToolContext, extraFactories: ToolFactory[] = 
     createWebFetchTool(ctx),
     createWebSearchTool(ctx),
     createAttachTool(ctx),
-    createReadInboxTool(ctx),
-    createGetInboxMessageTool(ctx),
     createFetchImageTool(ctx),
     createCronJobTool(ctx),
     createSendTool(ctx),

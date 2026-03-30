@@ -1,16 +1,16 @@
-import type { Storage } from "../storage/db.ts";
+import type { SchedulerStorage, ScheduledEvent } from "../storage/scheduler.ts";
 import type { CronJobRequest, CronJobResult, ScheduleInfo } from "../types.ts";
 import { findNextCronOccurrence } from "./scheduler.ts";
 import { normalizeScheduledRunAt } from "./time.ts";
 
 export type ScheduleHandler = (channelKey: string, request: CronJobRequest) => Promise<CronJobResult>;
 
-export function createScheduleHandler(storage: Storage, onChanged?: () => void): ScheduleHandler {
+export function createScheduleHandler(storage: SchedulerStorage, onChanged?: () => void): ScheduleHandler {
   return (channelKey, request) => handleCronJob(storage, onChanged, channelKey, request);
 }
 
 async function handleCronJob(
-  storage: Storage,
+  storage: SchedulerStorage,
   onChanged: (() => void) | undefined,
   channelKey: string,
   request: CronJobRequest,
@@ -20,20 +20,20 @@ async function handleCronJob(
       return {
         ok: true,
         op: "list",
-        schedules: storage.listEvents(channelKey, request.limit ?? 20).map(mapScheduleRow),
+        schedules: storage.list(channelKey, request.limit ?? 20).map(mapScheduleRow),
       };
 
     case "get": {
-      const id = Number(request.id);
-      if (!(id > 0)) throw new Error("cron_job get requires valid id");
-      const row = storage.getEvent(id, channelKey);
+      const id = request.id;
+      if (!id) throw new Error("cron_job get requires valid id");
+      const row = storage.get(id);
       return { ok: row !== null, op: "get", schedule: row ? mapScheduleRow(row) : null };
     }
 
     case "cancel": {
-      const id = Number(request.id);
-      if (!(id > 0)) throw new Error("cron_job cancel requires valid id");
-      const cancelled = storage.cancelEvent(id, channelKey);
+      const id = request.id;
+      if (!id) throw new Error("cron_job cancel requires valid id");
+      const cancelled = storage.cancel(id);
       if (cancelled) onChanged?.();
       return { ok: cancelled !== null, op: "cancel", schedule: null };
     }
@@ -50,13 +50,13 @@ async function handleCronJob(
 }
 
 async function createSchedule(
-  storage: Storage,
+  storage: SchedulerStorage,
   onChanged: (() => void) | undefined,
   channelKey: string,
   request: CronJobRequest,
 ): Promise<CronJobResult> {
   const mutation = resolveScheduleMutation(request);
-  const row = storage.insertEvent({
+  const row = storage.insert({
     type: mutation.type,
     channelKey,
     prompt: mutation.prompt,
@@ -64,27 +64,29 @@ async function createSchedule(
     cronExpr: mutation.cronExpr,
     timezone: mutation.timezone,
     nextRunAt: mutation.nextRunAt,
+    status: "active",
+    retries: 0,
   });
   onChanged?.();
   return { ok: true, op: "create", schedule: mapScheduleRow(row) };
 }
 
 async function updateSchedule(
-  storage: Storage,
+  storage: SchedulerStorage,
   onChanged: (() => void) | undefined,
-  channelKey: string,
+  _channelKey: string,
   request: CronJobRequest,
 ): Promise<CronJobResult> {
-  const id = Number(request.id);
-  if (!(id > 0)) throw new Error("cron_job update requires valid id");
+  const id = request.id;
+  if (!id) throw new Error("cron_job update requires valid id");
 
-  const row = storage.getEvent(id, channelKey);
+  const row = storage.get(id);
   if (!row) {
     return { ok: false, op: "update", schedule: null };
   }
 
   const mutation = resolveScheduleMutation(request, row);
-  const updated = storage.updateEvent(id, channelKey, {
+  const updated = storage.update(id, {
     type: mutation.type,
     prompt: mutation.prompt,
     runAt: mutation.runAt,
@@ -96,37 +98,22 @@ async function updateSchedule(
   return { ok: updated !== null, op: "update", schedule: updated ? mapScheduleRow(updated) : null };
 }
 
-function mapScheduleRow(row: {
-  id: number;
-  type: "one-shot" | "periodic";
-  prompt: string | null;
-  status: string;
-  cron_expr: string | null;
-  run_at: string | null;
-  next_run_at: string | null;
-  timezone: string | null;
-}): ScheduleInfo {
+function mapScheduleRow(row: ScheduledEvent): ScheduleInfo {
   const kind = row.type === "periodic" ? "cron" : "once";
   return {
     id: row.id,
     kind,
     prompt: row.prompt ?? "",
     status: row.status,
-    schedule: kind === "cron" ? row.cron_expr ?? "" : row.run_at ?? "",
-    nextRunAt: row.next_run_at,
+    schedule: kind === "cron" ? row.cronExpr ?? "" : row.runAt ?? "",
+    nextRunAt: row.nextRunAt,
     timezone: row.timezone,
   };
 }
 
 function resolveScheduleMutation(
   request: CronJobRequest,
-  current?: {
-    type: "one-shot" | "periodic";
-    prompt: string | null;
-    cron_expr: string | null;
-    run_at: string | null;
-    timezone: string | null;
-  },
+  current?: ScheduledEvent,
 ): {
   type: "one-shot" | "periodic";
   prompt: string;
@@ -143,7 +130,7 @@ function resolveScheduleMutation(
 
   const timezone = (request.timezone ?? current?.timezone ?? null)?.trim() || null;
   if (kind === "cron") {
-    const schedule = (request.schedule ?? current?.cron_expr ?? "").trim();
+    const schedule = (request.schedule ?? current?.cronExpr ?? "").trim();
     if (!schedule) throw new Error("cron_job requires schedule");
     return {
       type: "periodic",
@@ -155,7 +142,7 @@ function resolveScheduleMutation(
     };
   }
 
-  const schedule = (request.schedule ?? current?.run_at ?? "").trim();
+  const schedule = (request.schedule ?? current?.runAt ?? "").trim();
   if (!schedule) throw new Error("cron_job requires schedule");
   const runAt = normalizeScheduledRunAt(schedule, timezone || undefined);
   return {

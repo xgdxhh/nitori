@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { Storage, type EventRow } from "../storage/db.ts";
+import type { SchedulerStorage, ScheduledEvent } from "../storage/scheduler.ts";
 import type { InboundMessage, TriggerType } from "../types.ts";
 
 const MAX_SLEEP_MS = 5 * 60 * 1000;
@@ -12,7 +12,7 @@ export class EventScheduler {
   private pendingSignal = false;
 
   constructor(
-    private readonly storage: Storage,
+    private readonly storage: SchedulerStorage,
     private readonly enqueue: (messages: InboundMessage[], trigger: TriggerType) => Promise<void>,
   ) { }
 
@@ -66,14 +66,14 @@ export class EventScheduler {
       while (!this.stopped) {
         this.pendingSignal = false;
 
-        const due = this.storage.claimDueEvents();
+        const due = this.storage.claimDue();
         await Promise.allSettled(due.map((event) => this.dispatch(event)));
 
         if (this.pendingSignal) {
           continue;
         }
 
-        const nextRunAt = this.storage.peekNextDueEventAt();
+        const nextRunAt = this.storage.peekNextDue();
         if (this.pendingSignal) {
           continue;
         }
@@ -103,27 +103,27 @@ export class EventScheduler {
     }
   }
 
-  private async dispatch(event: EventRow): Promise<void> {
-    const channelKey = (event.channel_key ?? "").trim();
+  private async dispatch(event: ScheduledEvent): Promise<void> {
+    const channelKey = (event.channelKey ?? "").trim();
     if (!channelKey) {
       console.error(`Event ${event.id}: missing channelKey`);
-      this.storage.failEvent(event.id);
+      this.storage.fail(event.id);
       return;
     }
 
     let nextRunAt: string | undefined;
     if (event.type === "periodic") {
-      const cronExpr = event.cron_expr?.trim();
+      const cronExpr = event.cronExpr?.trim();
       if (!cronExpr) {
         console.error(`Event ${event.id}: missing cron expression`);
-        this.storage.failEvent(event.id);
+        this.storage.fail(event.id);
         return;
       }
       try {
         nextRunAt = findNextCronOccurrence(cronExpr, new Date(), event.timezone || undefined).toISOString();
       } catch (error) {
         console.error(`Event ${event.id}: invalid cron expression`, error);
-        this.storage.failEvent(event.id);
+        this.storage.fail(event.id);
         return;
       }
     }
@@ -132,7 +132,7 @@ export class EventScheduler {
       const prompt = (event.prompt ?? "").trim();
       if (!prompt) {
         console.error(`Event ${event.id}: missing prompt`);
-        this.storage.failEvent(event.id);
+        this.storage.fail(event.id);
         return;
       }
       const msg: InboundMessage = {
@@ -147,20 +147,20 @@ export class EventScheduler {
         raw: {
           scheduleId: event.id,
           scheduleType: event.type,
-          scheduleAt: event.next_run_at,
+          scheduleAt: event.nextRunAt,
         },
       };
       await this.enqueue([msg], "scheduled");
 
       if (event.type === "one-shot") {
-        this.storage.completeOneShotEvent(event.id);
+        this.storage.completeOneShot(event.id);
         return;
       }
 
-      this.storage.reschedulePeriodicEvent(event.id, nextRunAt!);
+      this.storage.reschedulePeriodic(event.id, nextRunAt!);
     } catch (error) {
       const retryAt = new Date(Date.now() + getRetryDelayMs(event.retries)).toISOString();
-      this.storage.releaseEventAfterFailure(event.id, retryAt);
+      this.storage.releaseAfterFailure(event.id, retryAt);
       console.error(`Scheduled event ${event.id} failed`, error);
     }
   }

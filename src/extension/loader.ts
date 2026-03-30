@@ -4,17 +4,13 @@ import type {
   AdapterMessageHandler,
   ExtensionAgentEnqueueRequest,
   ExtensionHost,
-  ExtensionInboxListOptions,
   ExtensionLogValue,
-  ExtensionUnreadChannel,
 } from "../types.ts";
 import type { AdapterFactory, ExtensionContext, NitoriExtension, ToolFactory } from "./types.ts";
 
 type DeactivateHandler = () => void | Promise<void>;
 
 interface ExtensionRuntime {
-  inboxList: (options: ExtensionInboxListOptions) => ReturnType<ExtensionHost["inbox"]["list"]>;
-  listUnreadChannels: () => ExtensionUnreadChannel[];
   agentEnqueue: (
     extensionName: string,
     request: ExtensionAgentEnqueueRequest,
@@ -37,8 +33,6 @@ export interface LoadExtensionsOptions {
   extensionNames: string[];
   workspaceDir: string;
   messageHandler: AdapterMessageHandler;
-  inboxList: (options: ExtensionInboxListOptions) => ReturnType<ExtensionHost["inbox"]["list"]>;
-  listUnreadChannels: () => ExtensionUnreadChannel[];
   agentEnqueue: (
     extensionName: string,
     request: ExtensionAgentEnqueueRequest,
@@ -212,16 +206,6 @@ export class ExtensionRegistry {
 
   private createHost(entry: LoadedExtension, cleanupHandlers: DeactivateHandler[]): ExtensionHost {
     return {
-      inbox: {
-        list: (options) => {
-          ensureExtensionEnabled(entry);
-          return this.runtime.inboxList(options);
-        },
-        listUnreadChannels: () => {
-          ensureExtensionEnabled(entry);
-          return this.runtime.listUnreadChannels();
-        },
-      },
       agent: {
         enqueue: async (request) => {
           ensureExtensionEnabled(entry);
@@ -240,8 +224,6 @@ export class ExtensionRegistry {
 
 export async function loadExtensions(options: LoadExtensionsOptions): Promise<ExtensionRegistry> {
   const registry = new ExtensionRegistry({
-    inboxList: options.inboxList,
-    listUnreadChannels: options.listUnreadChannels,
     agentEnqueue: options.agentEnqueue,
   });
 

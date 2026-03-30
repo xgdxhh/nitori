@@ -114,7 +114,6 @@ export interface ExtensionLogApi {
 }
 
 export interface ExtensionHost {
-  inbox: ExtensionInboxApi;
   agent: ExtensionAgentApi;
   lifecycle: ExtensionLifecycleApi;
   log: ExtensionLogApi;

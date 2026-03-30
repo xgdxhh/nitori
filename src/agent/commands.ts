@@ -1,11 +1,10 @@
 import { saveActiveProfile as save } from "../config/index.ts";
 import type { AppConfig } from "../config/index.ts";
-import type { Storage } from "../storage/db.ts";
 import type { InboundMessage } from "../types.ts";
 import type { ExtensionRegistry } from "../extension/loader.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
 import { resolveSessionKey } from "../session.ts";
-import { createSessionStorage, generateSessionId } from "../storage/sessions.ts";
+import { createSessionStorage, generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 
 export interface CommandChannelApi {
   replyMessage: (messageId: string, text: string) => Promise<string>;
@@ -14,8 +13,8 @@ export interface CommandChannelApi {
 interface ControlCommandContext {
   message: InboundMessage;
   config: AppConfig;
-  storage: Storage;
-  sessionStorage?: ReturnType<typeof createSessionStorage>;
+  storage: null;
+  sessionStorage?: SessionStorage;
   api: CommandChannelApi;
   extRegistry?: ExtensionRegistry;
   adapterManager?: AdapterManager;

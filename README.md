@@ -211,20 +211,6 @@ curl -X POST http://127.0.0.1:8787/events \
 
 `trigger: "active"` processes in background; `passive` only writes to inbox.
 
-## Storage
-
-SQLite at `~/.nitori/db/nitori.sqlite`:
-
-| Table                  | Purpose                                                      |
-| ---------------------- | ------------------------------------------------------------ |
-| `inbox`                | Incoming messages with channel_key, sender, trigger, status  |
-| `session_messages`     | Active session messages keyed by `session_key`               |
-| `session_checkpoints`  | Session boundaries for handoff/recall keyed by `session_key` |
-| `session_messages_fts` | FTS5 full-text search index keyed by `session_key`           |
-| `events`               | Scheduled events (one-shot and recurring)                    |
-
-WAL mode, foreign keys enabled, BM25 scoring with recency weighting.
-
 ## System Prompt Templates
 
 Files in workspace root shape agent behavior:
@@ -239,7 +225,6 @@ Created by `nitori onboard`:
 
 ```
 ~/.nitori/
-├── db/nitori.sqlite
 ├── settings.json
 ├── telegram.json      # Telegram allow/block lists
 ├── SOUL.md

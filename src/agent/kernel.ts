@@ -1,7 +1,6 @@
 import { streamText, stepCountIs } from "ai";
 import type { AppConfig } from "../config/index.ts";
-import { Storage } from "../storage/db.ts";
-import { createSessionStorage, generateSessionId, type SessionStorage } from "../storage/sessions.ts";
+import { generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 import { createToolset } from "../tools/index.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
 import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext } from "../types.ts";
@@ -143,15 +142,6 @@ class SessionTurnWriter {
 const sessionCoordinator = new SessionCoordinator();
 const sessionCompactions = new Map<string, Promise<void>>();
 
-let globalSessionStorage: SessionStorage | null = null;
-
-function getSessionStorage(config: AppConfig): SessionStorage {
-  if (!globalSessionStorage) {
-    globalSessionStorage = createSessionStorage(config.workspaceDir);
-  }
-  return globalSessionStorage;
-}
-
 function getOrCreateSession(sessionStorage: SessionStorage, sessionKey: string): string {
   const existingSessionId = sessionStorage.getLatestSessionId(sessionKey);
   if (existingSessionId) {
@@ -167,14 +157,14 @@ export async function processChannel(
   inMessages: InboundMessage[],
   deps: {
     config: AppConfig;
-    storage: Storage;
+    sessionStorage: SessionStorage;
     adapterManager: AdapterManager;
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
   },
 ): Promise<void> {
   const sessionKey = resolveSessionKey(deps.config, channelKey);
-  const sessionStorage = getSessionStorage(deps.config);
+  const sessionStorage = deps.sessionStorage;
   const sessionId = getOrCreateSession(sessionStorage, sessionKey);
   const latest = inMessages.at(-1);
   return sessionCoordinator.enqueue(sessionKey, channelKey, latest?.id ?? "unknown", (runMeta) => {
@@ -188,21 +178,21 @@ async function _run(
   inMessages: InboundMessage[],
   deps: {
     config: AppConfig;
-    storage: Storage;
+    sessionStorage: SessionStorage;
     adapterManager: AdapterManager;
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
   },
   runMeta: SessionRunMeta,
 ): Promise<void> {
-  const { storage, config, adapterManager } = deps;
+  const { config, adapterManager } = deps;
   const latest = inMessages.at(-1);
   if (!latest) return;
 
   const profile = config.llm.profiles[config.llm.activeName];
   if (!profile) throw new Error(`Active profile '${config.llm.activeName}' missing`);
   const model = getModel(profile);
-  const sessionStorage = getSessionStorage(config);
+  const sessionStorage = deps.sessionStorage;
   const activeSession = sessionStorage.loadSession(runMeta.sessionKey, runMeta.sessionId);
   const writer = new SessionTurnWriter(
     sessionStorage,
@@ -212,14 +202,12 @@ async function _run(
   );
 
   const toolContext: ToolContext = {
-    storage,
     adapterManager,
     currentChannelKey: channelKey,
     currentSessionKey: runMeta.sessionKey,
     workspaceDir: config.workspaceDir,
     currentMessageId: latest.id,
     cronJob: (req) => deps.scheduleHandler(channelKey, req),
-    readInbox: (opts) => storage.listInbox(opts),
   };
 
   const toolsArray = createToolset(toolContext, deps.toolFactories);

@@ -1,7 +1,4 @@
 import type { AdapterManager } from "./adapters/manager.ts";
-import type { Storage } from "./storage/db.ts";
-
-import type { InboundMessage } from "../packages/nitori-types/index.ts";
 
 export * from "../packages/nitori-types/index.ts";
 
@@ -14,14 +11,13 @@ export interface RuntimeAction {
   | "cron_once"
   | "cron_recurring"
   | "cron_cancel"
-  | "read_inbox"
   | "fetch_image";
   data: Record<string, unknown>;
 }
 
 export interface CronJobRequest {
   op: "create" | "list" | "get" | "update" | "cancel";
-  id?: number;
+  id?: string;
   kind?: "once" | "cron";
   prompt?: string;
   schedule?: string;
@@ -30,7 +26,7 @@ export interface CronJobRequest {
 }
 
 export interface ScheduleInfo {
-  id: number;
+  id: string;
   kind: "once" | "cron";
   prompt: string;
   status: string;
@@ -47,12 +43,10 @@ export interface CronJobResult {
 }
 
 export interface ToolContext {
-  storage: Storage;
   adapterManager: AdapterManager;
   currentChannelKey: string;
   currentSessionKey: string;
   workspaceDir: string;
   currentMessageId?: string;
   cronJob: (request: CronJobRequest) => Promise<CronJobResult>;
-  readInbox: (options: { limit: number; offset?: number; onlyUnread?: boolean; channelKey?: string; markAsRead?: boolean }) => InboundMessage[];
 }
