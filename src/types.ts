@@ -10,8 +10,7 @@ export interface RuntimeAction {
   | "attach_file"
   | "cron_once"
   | "cron_recurring"
-  | "cron_cancel"
-  | "fetch_image";
+  | "cron_cancel";
   data: Record<string, unknown>;
 }
 
