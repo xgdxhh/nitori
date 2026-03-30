@@ -1,6 +1,7 @@
 import { streamText, stepCountIs } from "ai";
 import type { AppConfig } from "../config/index.ts";
 import { Storage } from "../storage/db.ts";
+import { createSessionStorage, generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 import { createToolset } from "../tools/index.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
 import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext } from "../types.ts";
@@ -27,6 +28,7 @@ type TimeoutKind = "idle" | "max";
 
 interface SessionRunMeta {
   sessionKey: string;
+  sessionId?: string;
   channelKey: string;
   messageId: string;
   startedAt: number;
@@ -36,8 +38,7 @@ interface SessionRunMeta {
 }
 
 interface SessionSnapshot {
-  checkpointAfterId: number;
-  tipId: number;
+  sessionId: string;
   messages: Array<{ role: string; content: unknown }>;
 }
 
@@ -103,18 +104,15 @@ class SessionCoordinator {
 class SessionTurnWriter {
   private readonly persistedMessages: Array<{ role: string; content: unknown }>;
   private observedMessageCount: number;
-  private tipId: number;
 
   constructor(
-    private readonly storage: Storage,
+    private readonly sessionStorage: SessionStorage,
     private readonly sessionKey: string,
+    private readonly sessionId: string,
     initialMessages: Array<{ role: string; content: unknown }>,
-    private readonly checkpointAfterId: number,
-    initialTipId: number,
   ) {
     this.persistedMessages = [...initialMessages];
     this.observedMessageCount = initialMessages.length;
-    this.tipId = initialTipId;
   }
 
   flush(messages: Array<{ role: string; content: unknown }>): void {
@@ -126,17 +124,17 @@ class SessionTurnWriter {
     const persistableMessages = freshMessages.filter(isPersistableMessage);
     if (persistableMessages.length === 0) return;
 
-    const insertedIds = this.storage.appendSessionMessages(this.sessionKey, persistableMessages as never[]);
-    if (insertedIds.length > 0) {
-      this.tipId = insertedIds[insertedIds.length - 1];
-    }
+    this.sessionStorage.appendMessages(
+      this.sessionKey,
+      this.sessionId,
+      persistableMessages as Array<{ role: string; content: unknown; timestamp?: number }>,
+    );
     this.persistedMessages.push(...persistableMessages);
   }
 
   snapshot(): SessionSnapshot {
     return {
-      checkpointAfterId: this.checkpointAfterId,
-      tipId: this.tipId,
+      sessionId: this.sessionId,
       messages: [...this.persistedMessages],
     };
   }
@@ -144,6 +142,25 @@ class SessionTurnWriter {
 
 const sessionCoordinator = new SessionCoordinator();
 const sessionCompactions = new Map<string, Promise<void>>();
+
+let globalSessionStorage: SessionStorage | null = null;
+
+function getSessionStorage(config: AppConfig): SessionStorage {
+  if (!globalSessionStorage) {
+    globalSessionStorage = createSessionStorage(config.workspaceDir);
+  }
+  return globalSessionStorage;
+}
+
+function getOrCreateSession(sessionStorage: SessionStorage, sessionKey: string): string {
+  const existingSessionId = sessionStorage.getLatestSessionId(sessionKey);
+  if (existingSessionId) {
+    return existingSessionId;
+  }
+  const newSessionId = generateSessionId();
+  sessionStorage.createSession(sessionKey, newSessionId);
+  return newSessionId;
+}
 
 export async function processChannel(
   channelKey: string,
@@ -157,10 +174,13 @@ export async function processChannel(
   },
 ): Promise<void> {
   const sessionKey = resolveSessionKey(deps.config, channelKey);
+  const sessionStorage = getSessionStorage(deps.config);
+  const sessionId = getOrCreateSession(sessionStorage, sessionKey);
   const latest = inMessages.at(-1);
-  return sessionCoordinator.enqueue(sessionKey, channelKey, latest?.id ?? "unknown", (runMeta) =>
-    _run(channelKey, inMessages, deps, runMeta),
-  );
+  return sessionCoordinator.enqueue(sessionKey, channelKey, latest?.id ?? "unknown", (runMeta) => {
+    runMeta.sessionId = sessionId;
+    return _run(channelKey, inMessages, deps, runMeta);
+  });
 }
 
 async function _run(
@@ -182,13 +202,13 @@ async function _run(
   const profile = config.llm.profiles[config.llm.activeName];
   if (!profile) throw new Error(`Active profile '${config.llm.activeName}' missing`);
   const model = getModel(profile);
-  const activeSession = storage.loadActiveSessionState(runMeta.sessionKey);
+  const sessionStorage = getSessionStorage(config);
+  const activeSession = sessionStorage.loadSession(runMeta.sessionKey, runMeta.sessionId);
   const writer = new SessionTurnWriter(
-    storage,
+    sessionStorage,
     runMeta.sessionKey,
+    runMeta.sessionId,
     activeSession.messages as Array<{ role: string; content: unknown }>,
-    activeSession.checkpointAfterId,
-    activeSession.tipId,
   );
 
   const toolContext: ToolContext = {
@@ -310,7 +330,7 @@ async function _run(
 
   if (apiKey && config.agent.compaction.enabled) {
     scheduleAutoCompaction(runMeta.sessionKey, writer.snapshot(), {
-      storage,
+      sessionStorage,
       model,
       apiKey,
       contextWindow: 128000,
@@ -348,7 +368,7 @@ function scheduleAutoCompaction(
   sessionKey: string,
   snapshot: SessionSnapshot,
   opts: {
-    storage: Storage;
+    sessionStorage: SessionStorage;
     model: LanguageModel;
     apiKey: string;
     contextWindow: number;
@@ -376,10 +396,11 @@ function scheduleAutoCompaction(
         },
       );
 
-      opts.storage.applyCompaction(
+      const newSessionId = generateSessionId();
+      opts.sessionStorage.compressSession(
         sessionKey,
-        snapshot.checkpointAfterId,
-        snapshot.tipId,
+        snapshot.sessionId,
+        newSessionId,
         [createCompactionSummaryMessage(summary, new Date().toISOString()), ...keptMessages],
       );
     })

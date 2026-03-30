@@ -5,6 +5,7 @@ import type { InboundMessage } from "../types.ts";
 import type { ExtensionRegistry } from "../extension/loader.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
 import { resolveSessionKey } from "../session.ts";
+import { createSessionStorage, generateSessionId } from "../storage/sessions.ts";
 
 export interface CommandChannelApi {
   replyMessage: (messageId: string, text: string) => Promise<string>;
@@ -14,6 +15,7 @@ interface ControlCommandContext {
   message: InboundMessage;
   config: AppConfig;
   storage: Storage;
+  sessionStorage?: ReturnType<typeof createSessionStorage>;
   api: CommandChannelApi;
   extRegistry?: ExtensionRegistry;
   adapterManager?: AdapterManager;
@@ -23,9 +25,14 @@ const handlers: Record<string, (ctx: ControlCommandContext, args: string) => Pro
   stop: async ({ message, api }) => {
     await api.replyMessage(message.id, "Kernel is functional and stateless. Direct stop ignored.");
   },
-  handoff: async ({ message, storage, api, config }) => {
-    const created = storage.createCheckpoint(resolveSessionKey(config, message.channelKey));
-    await api.replyMessage(message.id, created ? "Started a new session." : "Already at a fresh checkpoint.");
+  handoff: async ({ message, api, config, sessionStorage }) => {
+    if (!sessionStorage) {
+      sessionStorage = createSessionStorage(config.workspaceDir);
+    }
+    const sessionKey = resolveSessionKey(config, message.channelKey);
+    const newSessionId = generateSessionId();
+    sessionStorage.createSession(sessionKey, newSessionId);
+    await api.replyMessage(message.id, `Started a new session: ${newSessionId.slice(0, 8)}...`);
   },
   profile: handleProfileCommand,
   ext: handleExtCommand,

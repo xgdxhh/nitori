@@ -1,4 +1,5 @@
 import { Storage } from "../storage/db.ts";
+import { createSessionStorage } from "../storage/sessions.ts";
 import { processChannel } from "./kernel.ts";
 import { createScheduleHandler } from "../schedule/handler.ts";
 import { handleControlCommand } from "./commands.ts";
@@ -33,6 +34,7 @@ function createExtensionAgentMessage(extensionName: string, request: ExtensionAg
 
 export async function runDaemon(config: AppConfig, options: { cliMode: boolean }) {
   const storage = new Storage(config.dbPath).init();
+  const sessionStorage = createSessionStorage(config.workspaceDir);
   let scheduler: EventScheduler | null = null;
   let ingressServer: IngressServer | null = null;
   let extRegistry: ExtensionRegistry | null = null;
@@ -55,7 +57,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
 
       const api = { replyMessage: (id: string, text: string) => adapterManager.sendMessage(message.channelKey, text, id) };
 
-      if (await handleControlCommand({ message, config, storage, api, extRegistry: extRegistry ?? undefined, adapterManager })) {
+      if (await handleControlCommand({ message, config, storage, sessionStorage, api, extRegistry: extRegistry ?? undefined, adapterManager })) {
         storage.markInboxMessageRead(message.channelKey, message.id);
         return;
       }
