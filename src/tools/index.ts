@@ -9,7 +9,6 @@ import { createGetInboxMessageTool } from "./inbox-get.ts";
 import { createReplyTool, createSendTool } from "./message-action.ts";
 import { createFetchImageTool } from "./fetch-image.ts";
 import { createReactMessageTool } from "./react-message.ts";
-import { createHandoffTool, createRecallTool } from "./session.ts";
 import { createWebFetchTool, createWebSearchTool } from "./web.ts";
 
 export function createToolset(ctx: ToolContext, extraFactories: ToolFactory[] = []): Tool[] {
@@ -19,8 +18,6 @@ export function createToolset(ctx: ToolContext, extraFactories: ToolFactory[] = 
     ...builtIns,
     createWebFetchTool(ctx),
     createWebSearchTool(ctx),
-    createHandoffTool(ctx),
-    createRecallTool(ctx),
     createAttachTool(ctx),
     createReadInboxTool(ctx),
     createGetInboxMessageTool(ctx),

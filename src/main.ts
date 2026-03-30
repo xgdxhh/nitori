@@ -1,6 +1,5 @@
 import { loadConfig, ensureWorkspaceLayout } from "./config/index.ts";
 import { runDaemon } from "./agent/daemon.ts";
-import { runOAuthLoginCommand } from "./llm/profile.ts";
 
 const config = loadConfig();
 
@@ -10,16 +9,11 @@ dispatchCli().catch((err) => {
 });
 
 async function dispatchCli() {
-  const [cmd, ...args] = process.argv.slice(2);
+  const [cmd, ..._args] = process.argv.slice(2);
 
   if (cmd === "onboard") {
     ensureWorkspaceLayout(config.workspaceDir);
     console.log(`[nitori] workspace initialized: ${config.workspaceDir}`);
-    return;
-  }
-
-  if (cmd === "oauth" && args[0] === "login") {
-    await runOAuthLoginCommand(config, args[1]);
     return;
   }
 

@@ -12,11 +12,10 @@ nitori onboard        # Initialize ~/.nitori workspace
 
 ## CLI Commands
 
-| Command                         | Description                                            |
-| ------------------------------- | ------------------------------------------------------ |
-| `nitori onboard`                | Initialize workspace (`~/.nitori`) with default config |
-| `nitori oauth login [provider]` | OAuth login for LLM providers (e.g. `openai-codex`)    |
-| `nitori chat`                   | Run in CLI chat mode instead of Telegram/Discord       |
+| Command          | Description                                            |
+| ---------------- | ------------------------------------------------------ |
+| `nitori onboard` | Initialize workspace (`~/.nitori`) with default config |
+| `nitori chat`    | Run in CLI chat mode instead of Telegram/Discord       |
 
 ## Adapters
 
@@ -122,7 +121,6 @@ Run `nitori chat` for interactive terminal chat.
 ### Auth Modes
 
 - `apiKey` - Direct API key
-- `oauth` - Auto-refreshing OAuth credentials (see OAuth section)
 
 ### Google Native Tools
 
@@ -141,35 +139,6 @@ Run `nitori chat` for interactive terminal chat.
 ```
 
 Note: Use SDK-style `camelCase` names (`urlContext`), not REST API `snake_case`.
-
-### OAuth
-
-OAuth credentials are stored per-profile. The path is configurable:
-
-```json
-{
-  "llm": {
-    "profile": "codex",
-    "profiles": {
-      "codex": {
-        "provider": "openai-codex",
-        "model": "gpt-5.4",
-        "authMode": "oauth",
-        "oauthCredentialsPath": "auth/codex.json"
-      }
-    }
-  }
-}
-```
-
-Default path is `oauth.json` in workspace root if `oauthCredentialsPath` is
-omitted.
-
-Login command:
-
-```bash
-nitori oauth login openai-codex
-```
 
 ## Extensions
 
