@@ -23,6 +23,7 @@ export function createBuiltInCodingTools(ctx: BuiltInToolContext): Tool[] {
 
 function createReadTool(ctx: BuiltInToolContext): Tool {
   return tool({
+    title: "read",
     description: "Read a file or list a directory.",
     inputSchema: z.object({
       path: z.string().describe("Path to read or directory to list"),

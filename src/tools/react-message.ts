@@ -6,6 +6,7 @@ import { resolveMessageId } from "./message-id.ts";
 
 export function createReactMessageTool(ctx: ToolContext): Tool {
   return tool({
+    title: "react",
     description: "React to a message with an emoji.",
     inputSchema: z.object({
       messageId: z.string().optional().describe("Message ID to react to"),

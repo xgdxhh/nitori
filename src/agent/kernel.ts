@@ -213,7 +213,7 @@ async function _run(
   const toolsArray = createToolset(toolContext, deps.toolFactories);
   const tools: Record<string, typeof toolsArray[number]> = {};
   for (const t of toolsArray) {
-    tools[t.type] = t;
+    tools[t.title] = t;
   }
 
   const systemPrompt = buildSystemPrompt(config.workspaceDir, config);
