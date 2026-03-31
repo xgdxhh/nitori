@@ -4,4 +4,6 @@ packages
 .oxlintrc.json
 AGENTS.md
 
+scripts
+.agents
 templates
