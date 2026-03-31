@@ -1,4 +1,4 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, stepCountIs, generateText } from "ai";
 import type { AppConfig } from "../config/index.ts";
 import { generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 import { createToolset } from "../tools/index.ts";
@@ -6,151 +6,17 @@ import type { AdapterManager } from "../adapters/manager.ts";
 import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext } from "../types.ts";
 import type { ToolFactory } from "../extension/types.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
-import { agentOutput, DIM, RESET } from "./console.ts";
+import { agentOutput } from "./console.ts";
 import { getApiKeyForProfile } from "../llm/profile.ts";
 import { loadImagesFromAttachments, normalizeInboxPrompt } from "./utils.ts";
-import {
-  shouldAutoCompact,
-  prepareLinearCompaction,
-  generateCompactionSummary,
-  createCompactionSummaryMessage,
-} from "./compact.ts";
 import { resolveSessionKey } from "../session.ts";
 import type { LanguageModel } from "ai";
 
-const AGENT_IDLE_TIMEOUT_MS = 5 * 60_000;
 const AGENT_MAX_RUN_MS = 30 * 60_000;
 const COMPACTION_TIMEOUT_MS = 60_000;
 
-type SessionPhase = "queued" | "llm" | "tool" | "persist" | "done";
-type TimeoutKind = "idle" | "max";
-
-interface SessionRunMeta {
-  sessionKey: string;
-  sessionId?: string;
-  channelKey: string;
-  messageId: string;
-  startedAt: number;
-  lastActivityAt: number;
-  phase: SessionPhase;
-  toolName: string | null;
-}
-
-interface SessionSnapshot {
-  sessionId: string;
-  messages: Array<{ role: string; content: unknown }>;
-}
-
-interface RunTimeout {
-  touch: () => void;
-  run: <T>(promise: Promise<T>) => Promise<T>;
-  stop: () => void;
-}
-
-class SessionCoordinator {
-  private readonly queues = new Map<string, Promise<void>>();
-  private readonly activeRuns = new Map<string, SessionRunMeta>();
-
-  enqueue(
-    sessionKey: string,
-    channelKey: string,
-    messageId: string,
-    run: (runMeta: SessionRunMeta) => Promise<void>,
-  ): Promise<void> {
-    const previous = this.queues.get(sessionKey);
-    if (previous) {
-      console.log(formatWaitingForSessionLock(this.activeRuns.get(sessionKey), sessionKey, channelKey, messageId));
-    }
-
-    const runMeta: SessionRunMeta = {
-      sessionKey,
-      channelKey,
-      messageId,
-      startedAt: 0,
-      lastActivityAt: 0,
-      phase: "queued",
-      toolName: null,
-    };
-
-    const queuedRun = (previous ?? Promise.resolve())
-      .catch(() => undefined)
-      .then(async () => {
-        const now = Date.now();
-        runMeta.startedAt = now;
-        runMeta.lastActivityAt = now;
-        runMeta.phase = "llm";
-        this.activeRuns.set(sessionKey, runMeta);
-        try {
-          await run(runMeta);
-        } finally {
-          runMeta.phase = "done";
-          this.activeRuns.delete(sessionKey);
-        }
-      });
-
-    let queueTail: Promise<void>;
-    queueTail = queuedRun.finally(() => {
-      if (this.queues.get(sessionKey) === queueTail) {
-        this.queues.delete(sessionKey);
-      }
-    });
-
-    this.queues.set(sessionKey, queueTail);
-    return queueTail;
-  }
-}
-
-class SessionTurnWriter {
-  private readonly persistedMessages: Array<{ role: string; content: unknown }>;
-  private observedMessageCount: number;
-
-  constructor(
-    private readonly sessionStorage: SessionStorage,
-    private readonly sessionKey: string,
-    private readonly sessionId: string,
-    initialMessages: Array<{ role: string; content: unknown }>,
-  ) {
-    this.persistedMessages = [...initialMessages];
-    this.observedMessageCount = initialMessages.length;
-  }
-
-  flush(messages: Array<{ role: string; content: unknown }>): void {
-    if (messages.length <= this.observedMessageCount) return;
-
-    const freshMessages = messages.slice(this.observedMessageCount);
-    this.observedMessageCount = messages.length;
-
-    const persistableMessages = freshMessages.filter(isPersistableMessage);
-    if (persistableMessages.length === 0) return;
-
-    this.sessionStorage.appendMessages(
-      this.sessionKey,
-      this.sessionId,
-      persistableMessages as Array<{ role: string; content: unknown; timestamp?: number }>,
-    );
-    this.persistedMessages.push(...persistableMessages);
-  }
-
-  snapshot(): SessionSnapshot {
-    return {
-      sessionId: this.sessionId,
-      messages: [...this.persistedMessages],
-    };
-  }
-}
-
-const sessionCoordinator = new SessionCoordinator();
+const sessionQueues = new Map<string, Promise<void>>();
 const sessionCompactions = new Map<string, Promise<void>>();
-
-function getOrCreateSession(sessionStorage: SessionStorage, sessionKey: string): string {
-  const existingSessionId = sessionStorage.getLatestSessionId(sessionKey);
-  if (existingSessionId) {
-    return existingSessionId;
-  }
-  const newSessionId = generateSessionId();
-  sessionStorage.createSession(sessionKey, newSessionId);
-  return newSessionId;
-}
 
 export async function processChannel(
   channelKey: string,
@@ -166,14 +32,21 @@ export async function processChannel(
   const sessionKey = resolveSessionKey(deps.config, channelKey);
   const sessionStorage = deps.sessionStorage;
   const sessionId = getOrCreateSession(sessionStorage, sessionKey);
-  const latest = inMessages.at(-1);
-  return sessionCoordinator.enqueue(sessionKey, channelKey, latest?.id ?? "unknown", (runMeta) => {
-    runMeta.sessionId = sessionId;
-    return _run(channelKey, inMessages, deps, runMeta);
+
+  const prev = sessionQueues.get(sessionKey);
+  const run = (prev ?? Promise.resolve()).catch(() => {}).then(() => runSession(channelKey, inMessages, deps, sessionId));
+
+  sessionQueues.set(sessionKey, run);
+  run.catch(() => {}).finally(() => {
+    if (sessionQueues.get(sessionKey) === run) sessionQueues.delete(sessionKey);
   });
 }
 
-async function _run(
+function getOrCreateSession(sessionStorage: SessionStorage, sessionKey: string): string {
+  return sessionStorage.getLatestSessionId(sessionKey) ?? generateSessionId();
+}
+
+async function runSession(
   channelKey: string,
   inMessages: InboundMessage[],
   deps: {
@@ -183,80 +56,53 @@ async function _run(
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
   },
-  runMeta: SessionRunMeta,
+  sessionId: string,
 ): Promise<void> {
-  const { config, adapterManager } = deps;
-  const latest = inMessages.at(-1);
-  if (!latest) return;
-
-  const profile = config.llm.profiles[config.llm.activeName];
-  if (!profile) throw new Error(`Active profile '${config.llm.activeName}' missing`);
-  const model = getModel(profile);
+  const config = deps.config;
+  const adapterManager = deps.adapterManager;
   const sessionStorage = deps.sessionStorage;
-  const activeSession = sessionStorage.loadSession(runMeta.sessionKey, runMeta.sessionId);
-  const writer = new SessionTurnWriter(
-    sessionStorage,
-    runMeta.sessionKey,
-    runMeta.sessionId,
-    activeSession.messages as Array<{ role: string; content: unknown }>,
-  );
+  const profile = config.llm.profiles[config.llm.activeName];
+  const model = getModel(profile);
+  const sessionKey = resolveSessionKey(config, channelKey);
+  const latest = inMessages.at(-1)!;
+
+  const session = sessionStorage.loadSession(sessionKey, sessionId);
+  const messages: Array<{ role: string; content: unknown }> = [...session.messages];
 
   const toolContext: ToolContext = {
     adapterManager,
     currentChannelKey: channelKey,
-    currentSessionKey: runMeta.sessionKey,
+    currentSessionKey: sessionKey,
     workspaceDir: config.workspaceDir,
     currentMessageId: latest.id,
     cronJob: (req) => deps.scheduleHandler(channelKey, req),
   };
 
   const toolsArray = createToolset(toolContext, deps.toolFactories);
-  const tools: Record<string, typeof toolsArray[number]> = {};
-  for (const t of toolsArray) {
-    tools[t.title] = t;
-  }
-
-  const systemPrompt = buildSystemPrompt(config.workspaceDir, config);
-  const messages: Array<{ role: string; content: unknown }> = [...activeSession.messages as Array<{ role: string; content: unknown }>];
-  const images = inMessages.flatMap((message) => loadImagesFromAttachments(message.attachments));
+  const tools = Object.fromEntries(toolsArray.map(t => [t.title, t]));
 
   const apiKey = await getApiKeyForProfile(profile);
-  if (!apiKey) throw new Error(`No API key for profile '${config.llm.activeName}'`);
 
-  const timeout = createRunTimeout({
-    idleMs: AGENT_IDLE_TIMEOUT_MS,
-    maxMs: AGENT_MAX_RUN_MS,
-    runMeta,
-    onTimeout: (kind, elapsedMs) => {
-      const limitMs = kind === "idle" ? AGENT_IDLE_TIMEOUT_MS : AGENT_MAX_RUN_MS;
-      const label = kind === "idle" ? "idle" : "overall";
-      return new Error(`Agent run ${label} timeout after ${limitMs}ms (elapsed=${elapsedMs}ms, ${describeActiveRun(runMeta)})`);
-    },
-  });
-
+  const images = inMessages.flatMap(m => loadImagesFromAttachments(m.attachments));
   const userPrompt = normalizeInboxPrompt(inMessages, config.agent.hideSourceInfo);
-  agentOutput.userPrompt(inMessages);
-  runMeta.phase = "llm";
-
-  const userContent: unknown = images.length > 0
-    ? [{ type: "text", text: userPrompt }, ...images.map((img) => ({ type: "image", image: img.data, mimeType: img.mimeType }))]
+  const userContent = images.length > 0
+    ? [{ type: "text", text: userPrompt }, ...images.map(img => ({ type: "image", image: img.data, mimeType: img.mimeType }))]
     : userPrompt;
 
   messages.push({ role: "user", content: userContent });
 
-  const toolStartTimes = new Map<string, number>();
   let fullResponse = "";
   let hasShownThinking = false;
+  const toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown; result: unknown }> = [];
 
   try {
     const result = streamText({
       model,
-      system: systemPrompt,
+      system: buildSystemPrompt(config.workspaceDir, config),
       messages: messages as never,
       tools,
       stopWhen: stepCountIs(20),
       onChunk: ({ chunk }) => {
-        timeout.touch();
         if (chunk.type === "text-delta") {
           const delta = chunk.text;
           if (delta.includes("<thinking>")) {
@@ -271,59 +117,69 @@ async function _run(
         }
       },
       experimental_onToolCallStart: (event) => {
-        timeout.touch();
-        const tc = event.toolCall;
-        runMeta.phase = "tool";
-        runMeta.toolName = tc.toolName;
-        toolStartTimes.set(tc.toolCallId, Date.now());
-        agentOutput.toolCall(tc.toolName, tc.input as Record<string, unknown>);
+        const { toolCall } = event;
+        agentOutput.toolCall(toolCall.toolName, toolCall.input as Record<string, unknown>);
       },
       experimental_onToolCallFinish: (event) => {
-        timeout.touch();
-        const tc = event.toolCall;
-        runMeta.phase = "llm";
-        runMeta.toolName = null;
-        const duration = Date.now() - (toolStartTimes.get(tc.toolCallId) ?? 0);
-        const isError = (tc as { error?: unknown }).error != null;
-        agentOutput.toolResult(tc.toolName, duration, isError);
+        const { toolCall } = event;
+        const isError = (toolCall as { error?: unknown }).error != null;
+        toolCalls.push({
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          input: toolCall.input,
+          result: (toolCall as { result?: unknown }).result,
+        });
+        agentOutput.toolResult(toolCall.toolName, 0, isError);
       },
       onFinish: (event) => {
-        timeout.touch();
-        runMeta.phase = "persist";
-        runMeta.toolName = null;
-        writer.flush(messages);
+        if (toolCalls.length > 0) {
+          messages.push({
+            role: "assistant",
+            content: fullResponse,
+            toolCalls: toolCalls.map(tc => ({
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              input: tc.input,
+            })),
+          } as { role: string; content: unknown; toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> });
+          for (const tc of toolCalls) {
+            messages.push({
+              role: "tool",
+              toolCallId: tc.toolCallId,
+              content: tc.result,
+            } as { role: string; toolCallId: string; content: unknown });
+          }
+        }
 
         const text = event.finishReason === "error" ? fullResponse : event.text;
         if (text) {
+          if (toolCalls.length === 0) {
+            messages.push({ role: "assistant", content: text });
+          }
           agentOutput.assistant(text);
           if (config.agent.autoSendAssistantText && latest.trigger !== "scheduled") {
-            void adapterManager.sendMessage(channelKey, text, latest.id).catch((error: unknown) => {
-              agentOutput.error(formatErrorMessage(error, `Failed to send assistant reply to ${channelKey}`));
+            adapterManager.sendMessage(channelKey, text, latest.id).catch((e) => {
+              agentOutput.error(`Failed to send reply to ${channelKey}: ${e instanceof Error ? e.message : e}`);
             });
           }
         }
 
-        if (event.finishReason === "error") {
-          agentOutput.error("Agent run error");
+        if (event.finishReason === "error") agentOutput.error("Agent run error");
+
+        if (config.agent.compaction.enabled) {
+          scheduleAutoCompaction(sessionKey, sessionId, session.messages, { sessionStorage, model, apiKey, reserveTokens: config.agent.compaction.reserveTokens });
         }
       },
     });
 
-    await timeout.run(result.text as Promise<string>);
+    await Promise.race([
+      result.text,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), AGENT_MAX_RUN_MS)),
+    ]);
+  } catch (e) {
+    agentOutput.error(`Agent error: ${e instanceof Error ? e.message : e}`);
   } finally {
-    timeout.stop();
-    runMeta.phase = "persist";
-    writer.flush(messages);
-  }
-
-  if (apiKey && config.agent.compaction.enabled) {
-    scheduleAutoCompaction(runMeta.sessionKey, writer.snapshot(), {
-      sessionStorage,
-      model,
-      apiKey,
-      contextWindow: 128000,
-      reserveTokens: config.agent.compaction.reserveTokens,
-    });
+    sessionStorage.appendMessages(sessionKey, sessionId, messages.slice(session.messages.length));
   }
 }
 
@@ -333,175 +189,73 @@ function getModel(profile: { provider: string; model: string; apiKey?: string; b
   switch (provider) {
     case "anthropic": {
       const { createAnthropic } = require("@ai-sdk/anthropic");
-      const client = createAnthropic({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY });
-      return client(modelId);
+      return createAnthropic({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY })(modelId);
     }
     case "openai": {
       if (baseUrl) {
         const { createOpenAICompatible } = require("@ai-sdk/openai-compatible");
-        const client = createOpenAICompatible({ baseURL: baseUrl, apiKey: apiKey || process.env.OPENAI_API_KEY });
-        return client(modelId);
+        return createOpenAICompatible({ baseURL: baseUrl, apiKey: apiKey || process.env.OPENAI_API_KEY })(modelId);
       }
       const { createOpenAI } = require("@ai-sdk/openai");
-      const client = createOpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY });
-      return client(modelId);
+      return createOpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY })(modelId);
     }
     case "google": {
       const { createGoogleGenerativeAI } = require("@ai-sdk/google");
-      const client = createGoogleGenerativeAI({ apiKey: apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY });
-      return client(modelId);
+      return createGoogleGenerativeAI({ apiKey: apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY })(modelId);
     }
-    default: {
+    default:
       throw new Error(`Unsupported provider: ${provider}`);
+  }
+}
+
+async function scheduleAutoCompaction(
+  sessionKey: string,
+  sessionId: string,
+  initialMessages: Array<{ role: string; content: unknown }>,
+  opts: { sessionStorage: SessionStorage; model: LanguageModel; apiKey: string; reserveTokens: number },
+): Promise<void> {
+  const assistantMsgs = initialMessages.filter(m => m.role === "assistant");
+  const lastMsg = assistantMsgs.at(-1);
+  if (!lastMsg) return;
+
+  const usage = (lastMsg as { usage?: { totalTokens?: number } }).usage;
+  if (!usage || (usage.totalTokens || 0) < 128000 - opts.reserveTokens) return;
+
+  let userCount = 0, splitIndex = 0;
+  for (let i = initialMessages.length - 1; i >= 0; i--) {
+    if (initialMessages[i].role === "user" && ++userCount === 10) {
+      splitIndex = i;
+      break;
     }
   }
-}
 
-function scheduleAutoCompaction(
-  sessionKey: string,
-  snapshot: SessionSnapshot,
-  opts: {
-    sessionStorage: SessionStorage;
-    model: LanguageModel;
-    apiKey: string;
-    contextWindow: number;
-    reserveTokens: number;
-  },
-): void {
-  const lastMessage = snapshot.messages.filter((m) => m.role === "assistant").at(-1);
-  if (!lastMessage) return;
-  if (!shouldAutoCompact(lastMessage, opts.contextWindow, { enabled: true, reserveTokens: opts.reserveTokens })) {
-    return;
-  }
+  const toSummarize = initialMessages.slice(0, splitIndex);
+  const kept = initialMessages.slice(splitIndex);
+  if (toSummarize.length === 0) return;
 
-  const { messagesToSummarize, keptMessages } = prepareLinearCompaction(snapshot.messages);
-  if (messagesToSummarize.length === 0) return;
-
-  const previous = sessionCompactions.get(sessionKey);
-  const queuedCompaction = (previous ?? Promise.resolve())
-    .catch(() => undefined)
-    .then(async () => {
-      const summary = await withTimeout(
-        generateCompactionSummary(messagesToSummarize, opts.model, opts.reserveTokens),
-        COMPACTION_TIMEOUT_MS,
-        () => {
-          throw new Error(`Compaction timed out after ${COMPACTION_TIMEOUT_MS}ms (session=${sessionKey})`);
-        },
-      );
-
-      const newSessionId = generateSessionId();
-      opts.sessionStorage.compressSession(
-        sessionKey,
-        snapshot.sessionId,
-        newSessionId,
-        [createCompactionSummaryMessage(summary, new Date().toISOString()), ...keptMessages],
-      );
-    })
-    .catch((error: unknown) => {
-      agentOutput.error(formatErrorMessage(error, `Failed to compact session ${sessionKey}`));
-    });
-
-  let compactionTail: Promise<void>;
-  compactionTail = queuedCompaction.finally(() => {
-    if (sessionCompactions.get(sessionKey) === compactionTail) {
-      sessionCompactions.delete(sessionKey);
-    }
-  });
-
-  sessionCompactions.set(sessionKey, compactionTail);
-}
-
-function isPersistableMessage(message: { role: string; content: unknown }): boolean {
-  return message.role !== "assistant" || !((message.content as string)?.startsWith?.("[ERROR]"));
-}
-
-function formatWaitingForSessionLock(
-  activeRun: SessionRunMeta | undefined,
-  sessionKey: string,
-  channelKey: string,
-  messageId: string,
-): string {
-  if (!activeRun) {
-    return `${DIM}[nitori] waiting for session lock: ${sessionKey} channel=${channelKey} message=${messageId}${RESET}`;
-  }
-
-  const waitMs = Date.now() - activeRun.startedAt;
-  const idleMs = Date.now() - activeRun.lastActivityAt;
-  const tool = activeRun.toolName ? ` tool=${activeRun.toolName}` : "";
-  return `${DIM}[nitori] waiting for session lock: ${sessionKey} channel=${channelKey} message=${messageId} activeChannel=${activeRun.channelKey} activeMessage=${activeRun.messageId} phase=${activeRun.phase}${tool} ageMs=${waitMs} idleMs=${idleMs}${RESET}`;
-}
-
-function describeActiveRun(runMeta: SessionRunMeta): string {
-  const tool = runMeta.toolName ? ` tool=${runMeta.toolName}` : "";
-  const idleMs = Math.max(0, Date.now() - runMeta.lastActivityAt);
-  return `session=${runMeta.sessionKey} channel=${runMeta.channelKey} message=${runMeta.messageId} phase=${runMeta.phase}${tool} idleMs=${idleMs}`;
-}
-
-function formatErrorMessage(error: unknown, prefix: string): string {
-  return error instanceof Error ? `${prefix}: ${error.message}` : prefix;
-}
-
-function createRunTimeout(opts: {
-  idleMs: number;
-  maxMs: number;
-  runMeta: SessionRunMeta;
-  onTimeout: (kind: TimeoutKind, elapsedMs: number) => Error;
-}): RunTimeout {
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  let maxTimer: ReturnType<typeof setTimeout> | undefined;
-  let finished = false;
-  let rejectTimeout: ((reason?: unknown) => void) | null = null;
-
-  const fail = (kind: TimeoutKind) => {
-    if (finished || !rejectTimeout) return;
-    finished = true;
-    if (idleTimer) clearTimeout(idleTimer);
-    if (maxTimer) clearTimeout(maxTimer);
-    rejectTimeout(opts.onTimeout(kind, Date.now() - opts.runMeta.startedAt));
-  };
-
-  const touch = () => {
-    opts.runMeta.lastActivityAt = Date.now();
-    if (finished) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => fail("idle"), opts.idleMs);
-  };
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    rejectTimeout = reject;
-    maxTimer = setTimeout(() => fail("max"), opts.maxMs);
-    touch();
-  });
-
-  return {
-    touch,
-    run: async <T>(promise: Promise<T>) => Promise.race([promise, timeoutPromise]),
-    stop: () => {
-      if (finished) return;
-      finished = true;
-      if (idleTimer) clearTimeout(idleTimer);
-      if (maxTimer) clearTimeout(maxTimer);
-    },
-  };
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => never): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => {
-          try {
-            onTimeout();
-          } catch (error) {
-            reject(error);
-          }
-        }, timeoutMs);
+  const prev = sessionCompactions.get(sessionKey);
+  const compact = (prev ?? Promise.resolve()).catch(() => {}).then(async () => {
+    const summary = await Promise.race([
+      generateText({
+        model: opts.model,
+        prompt: `Summarize the conversation history concisely. Focus on key facts, decisions, and preferences.\n\n${toSummarize.map(m => `[${m.role}] ${m.content}`).join("\n")}`,
       }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), COMPACTION_TIMEOUT_MS)),
     ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+
+    const newSessionId = generateSessionId();
+    opts.sessionStorage.compressSession(
+      sessionKey,
+      sessionId,
+      newSessionId,
+      [{ role: "user", content: `[Context Summary ${new Date().toISOString()}]\n${summary.text}` }, ...kept],
+    );
+  }).catch((e) => {
+    agentOutput.error(`Failed to compact session ${sessionKey}: ${e instanceof Error ? e.message : e}`);
+  });
+
+  sessionCompactions.set(sessionKey, compact);
+  compact?.finally(() => {
+    if (sessionCompactions.get(sessionKey) === compact) sessionCompactions.delete(sessionKey);
+  });
 }

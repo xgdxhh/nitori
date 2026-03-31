@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { createSessionStorage } from "../storage/sessions.ts";
 import { createSchedulerStorage } from "../storage/scheduler.ts";
 import { processChannel } from "./kernel.ts";
@@ -32,7 +33,7 @@ function createExtensionAgentMessage(extensionName: string, request: { channelKe
 }
 
 export async function runDaemon(config: AppConfig, options: { cliMode: boolean }) {
-  const sessionStorage = createSessionStorage(config.workspaceDir);
+  const sessionStorage = createSessionStorage(join(config.workspaceDir, "chats"));
   const schedulerStorage = createSchedulerStorage(config.workspaceDir);
   let scheduler: EventScheduler | null = null;
   let ingressServer: IngressServer | null = null;
