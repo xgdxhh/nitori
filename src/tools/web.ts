@@ -13,6 +13,7 @@ const DEFAULT_USER_AGENT =
 
 export function createWebSearchTool(_ctx: ToolContext): Tool {
   return tool({
+    title: "websearch",
     description: "Search the web using DuckDuckGo HTML endpoint.",
     inputSchema: z.object({
       query: z.string().describe("Search query"),
@@ -50,6 +51,7 @@ export function createWebSearchTool(_ctx: ToolContext): Tool {
 
 export function createWebFetchTool(_ctx: ToolContext): Tool {
   return tool({
+    title: "webfetch",
     description: "Fetch URL content through Jina Reader as markdown.",
     inputSchema: z.object({
       url: z.string().describe("URL to fetch"),

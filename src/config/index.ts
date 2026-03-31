@@ -18,6 +18,7 @@ export interface AppConfig {
   agent: {
     autoSendAssistantText: boolean;
     sessionScope: "channel" | "global";
+    hideSourceInfo: boolean;
     skills: { disabled: string[] };
     compaction: {
       enabled: boolean;
@@ -59,6 +60,7 @@ const createLlmProfileSchema = () => v.object({
 const AgentSchema = v.object({
   autoSendAssistantText: v.optional(v.boolean(), false),
   sessionScope: v.optional(v.union([v.literal("channel"), v.literal("global")]), "channel"),
+  hideSourceInfo: v.optional(v.boolean(), false),
   skills: v.optional(v.object({
     disabled: v.optional(v.array(v.string()), []),
   }), { disabled: [] }),

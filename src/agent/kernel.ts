@@ -234,7 +234,7 @@ async function _run(
     },
   });
 
-  const userPrompt = normalizeInboxPrompt(inMessages);
+  const userPrompt = normalizeInboxPrompt(inMessages, config.agent.hideSourceInfo);
   agentOutput.userPrompt(inMessages);
   runMeta.phase = "llm";
 

@@ -7,6 +7,7 @@ import { resolveInWorkspace } from "./common.ts";
 
 export function createAttachTool(ctx: ToolContext): Tool {
   return tool({
+    title: "attach",
     description: "Send a local file back to the current conversation.",
     inputSchema: z.object({
       path: z.string().describe("Path to file"),

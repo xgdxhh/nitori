@@ -51,6 +51,7 @@ function createReadTool(ctx: BuiltInToolContext): Tool {
 
 function createWriteTool(ctx: BuiltInToolContext): Tool {
   return tool({
+    title: "write",
     description: "Write full content to a file.",
     inputSchema: z.object({
       path: z.string().describe("Path to write to"),
@@ -67,6 +68,7 @@ function createWriteTool(ctx: BuiltInToolContext): Tool {
 
 function createEditTool(ctx: BuiltInToolContext): Tool {
   return tool({
+    title: "edit",
     description: "Replace first occurrence of oldText with newText.",
     inputSchema: z.object({
       path: z.string().describe("Path to file"),
@@ -93,6 +95,7 @@ function createEditTool(ctx: BuiltInToolContext): Tool {
 
 function createBashTool(ctx: BuiltInToolContext): Tool {
   return tool({
+    title: "bash",
     description: "Run a shell command in workspace.",
     inputSchema: z.object({
       command: z.string().describe("Shell command to execute"),

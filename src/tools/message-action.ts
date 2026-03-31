@@ -6,6 +6,7 @@ import { resolveMessageId } from "./message-id.ts";
 
 export function createSendTool(ctx: ToolContext): Tool {
   return tool({
+    title: "send",
     description: "Send a new message to the current session.",
     inputSchema: z.object({
       content: z.string().describe("Message content"),
@@ -24,6 +25,7 @@ export function createSendTool(ctx: ToolContext): Tool {
 
 export function createReplyTool(ctx: ToolContext): Tool {
   return tool({
+    title: "reply",
     description: "Reply to a specific inbox external_id (platform message id).",
     inputSchema: z.object({
       message_id: z.string().describe("Inbox external_id (platform message id)"),

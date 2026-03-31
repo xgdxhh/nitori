@@ -36,26 +36,29 @@ export function loadImagesFromAttachments(attachments: InboundMessage["attachmen
     .filter((x): x is ImageContent => !!x);
 }
 
-export function normalizeUserPrompt(m: InboundMessage): string {
+export function normalizeUserPrompt(m: InboundMessage, hideSourceInfo = false): string {
   if (m.trigger === "scheduled") return `kind: event\nchannel: ${m.channelKey}\nevent: ${m.trigger}\ntext: ${m.text || "(no text)"}`;
 
   const sender = `${m.sender.name || "Unknown"} (${m.sender.id})`;
   const attachments = m.attachments.map(a => `- ${a.type}: ${a.path}`).join("\n");
 
-  return [
-    `channel_key: ${m.channelKey}`,
-    `sender: ${sender}`,
-    `trigger: ${m.trigger}`,
-    `message id: ${m.id}`,
+  const parts = [
+    hideSourceInfo ? null : `channel_key: ${m.channelKey}`,
+    hideSourceInfo ? null : `sender: ${sender}`,
+    hideSourceInfo ? null : `trigger: ${m.trigger}`,
+    hideSourceInfo ? null : `message id: ${m.id}`,
     `text: ${m.text?.trim() || "(no text)"}`,
     attachments && `attachments:\n${attachments}`
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean);
+
+  return parts.join("\n");
 }
 
 export function normalizeInboxPrompt(
-  messages: InboundMessage[]
+  messages: InboundMessage[],
+  hideSourceInfo = false
 ): string {
   const now = new Date().toLocaleString("sv-SE", { timeZoneName: "short" });
-  const parts = messages.map(m => normalizeUserPrompt(m));
+  const parts = messages.map(m => normalizeUserPrompt(m, hideSourceInfo));
   return parts.join("\n\n---\n\n") + `\n\ncurrent time: ${now}`;
 }
