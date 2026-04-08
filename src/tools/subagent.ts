@@ -5,7 +5,6 @@ import type { McpClientManager } from "../mcp/client.ts";
 import type { ToolContext } from "../types.ts";
 import { createToolset } from "./index.ts";
 import { getModel } from "../llm/profile.ts";
-import { agentOutput } from "../agent/console.ts";
 
 interface SubagentDeps {
   config: AppConfig;
@@ -17,12 +16,14 @@ export function createSubagentTool(deps: SubagentDeps): Tool | null {
   const names = Object.keys(deps.config.subagents);
   if (names.length === 0) return null;
 
+  const sessions = new Map<string, Array<{ role: string; content: string }>>();
+
   return tool({
     title: "subagent",
-    description: `Delegate a task to a specialized subagent. Available: ${names.join(", ")}`,
+    description: `Delegate a task to a specialized subagent. Conversations are maintained per subagent name — calling the same subagent multiple times continues the conversation. Available: ${names.join(", ")}`,
     inputSchema: z.object({
       name: z.string().describe(`Subagent name. Available: ${names.join(", ")}`),
-      task: z.string().describe("Detailed task description for the subagent"),
+      task: z.string().describe("Task or follow-up message for the subagent"),
     }),
     execute: async ({ name, task }) => {
       const subConfig = deps.config.subagents[name];
@@ -30,15 +31,19 @@ export function createSubagentTool(deps: SubagentDeps): Tool | null {
       const model = getModel(profile);
       const tools = await buildSubagentTools(subConfig.tools, deps.toolContext, deps.mcpManager);
 
-      agentOutput.toolCall("subagent", { name, toolCount: Object.keys(tools).length });
+      const history = sessions.get(name) ?? [];
+      history.push({ role: "user", content: task });
 
       const result = await generateText({
         model,
         system: subConfig.prompt,
-        prompt: task,
+        messages: history as never,
         tools,
         stopWhen: stepCountIs(subConfig.maxSteps),
       });
+
+      history.push({ role: "assistant", content: result.text });
+      sessions.set(name, history);
 
       return result.text;
     },
