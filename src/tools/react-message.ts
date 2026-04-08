@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Tool } from "ai";
 import type { ToolContext } from "../types.ts";
-import { resolveMessageId } from "./message-id.ts";
+import { resolveMessageId } from "./common.ts";
 
 export function createReactMessageTool(ctx: ToolContext): Tool {
   return tool({
