@@ -79,10 +79,32 @@ Run `nitori chat` for interactive terminal chat.
 
 - `cron_job` - Manage schedules: `create`, `list`, `get`, `update`, `cancel`
 
-### Web
-
-- `websearch` - DuckDuckGo HTML search
 - `webfetch` - Fetch URL via Jina Reader as markdown
+
+### Model Context Protocol (MCP)
+
+Nitori supports connecting to MCP servers to dynamically expand its toolset. MCP tools are namespaced by their server name: `serverName:toolName`.
+
+Configure servers in `settings.json`:
+
+```json
+{
+  "mcp": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/extra/files"]
+    },
+    "fetch": {
+      "transport": "http",
+      "url": "https://mcp-server.example.com/mcp"
+    }
+  }
+}
+```
+
+Supported transports: `stdio`, `http`, `sse`.
+
 
 ## LLM Configuration
 
@@ -111,6 +133,18 @@ Run `nitori chat` for interactive terminal chat.
 - `channel`: each channel uses its own session
 - `global`: all channels share one session, and the session key is fixed to
   `global`
+
+### MCP Configuration
+
+| Field       | Type                     | Description                                      |
+| ----------- | ------------------------ | ------------------------------------------------ |
+| `transport` | `stdio` \| `http` \| `sse` | Communication method                             |
+| `command`   | `string`                 | Command to run (for `stdio`)                     |
+| `args`      | `string[]`               | Arguments for the command                        |
+| `env`       | `Record<string, string>` | Environment variables                            |
+| `url`       | `string`                 | Server URL (for `http`/`sse`)                    |
+| `headers`   | `Record<string, string>` | Custom HTTP headers                              |
+
 
 ### Supported Providers
 

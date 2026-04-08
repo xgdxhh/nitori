@@ -1,8 +1,8 @@
-# Nitori Extension Development Guide
-
-Nitori features a minimal extension system that allows you to expand
-**Adapters** (new communication platforms) and **Tools** (new Agent
 capabilities).
+
+> [!TIP]
+> For simple tools or cross-service tool discovery, consider using **Model Context Protocol (MCP)** instead of writing a full extension. See the main README for MCP configuration.
+
 
 ## Core Design
 

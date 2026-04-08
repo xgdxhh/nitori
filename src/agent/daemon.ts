@@ -12,6 +12,7 @@ import type { InboundMessage, TriggerType } from "../types.ts";
 import { createIngressServer, shouldStartIngressServer, type IngressServer } from "../ingress/server.ts";
 
 import { loadExtensions, type ExtensionRegistry } from "../extension/loader.ts";
+import { McpClientManager } from "../mcp/client.ts";
 import type { AppConfig } from "../config/index.ts";
 
 function createExtensionAgentMessage(extensionName: string, request: { channelKey: string; prompt: string; trigger?: TriggerType; metadata?: Record<string, unknown> }): InboundMessage {
@@ -40,6 +41,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
   let extRegistry: ExtensionRegistry | null = null;
   const scheduleHandler = createScheduleHandler(schedulerStorage, () => scheduler?.signal());
   const adapterManager = new AdapterManager();
+  const mcpManager = new McpClientManager();
 
   async function processAndReply(message: InboundMessage) {
     await processChannel(message.channelKey, [message], {
@@ -48,6 +50,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
       adapterManager,
       scheduleHandler,
       toolFactories: extRegistry?.activeToolFactories ?? [],
+      mcpManager,
     });
   }
 
@@ -77,6 +80,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
         adapterManager,
         scheduleHandler,
         toolFactories: getToolFactories(),
+        mcpManager,
       });
     },
   });
@@ -101,6 +105,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
     ingressServer = createIngressServer(config, messageHandler.onInbound);
   }
 
+  await mcpManager.start(config.mcp);
   await adapterManager.start();
   scheduler.start();
 
@@ -109,6 +114,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
     await ingressServer?.stop();
     await adapterManager.stop();
     await extRegistry?.unloadAll();
+    await mcpManager.close();
   };
 
   process.on("SIGINT", () => stop().then(() => process.exit(0)));

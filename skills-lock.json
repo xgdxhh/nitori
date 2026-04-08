@@ -10,6 +10,11 @@
       "source": "vercel/chat",
       "sourceType": "github",
       "computedHash": "3483217a04e5abd951e9f90f26beb062cdcccb5785a3b2a97ec9fe797536a135"
+    },
+    "software-design-philosophy": {
+      "source": "luoling8192/software-design-philosophy-skill",
+      "sourceType": "github",
+      "computedHash": "6abaf1049dd2b154a3ea36d7f640703a55f7699401efaf4f6bb3eb5a6412c4bb"
     }
   }
 }

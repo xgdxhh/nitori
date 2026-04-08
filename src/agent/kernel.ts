@@ -1,10 +1,11 @@
-import { streamText, stepCountIs, generateText } from "ai";
+import { streamText, stepCountIs, generateText, type Tool } from "ai";
 import type { AppConfig } from "../config/index.ts";
 import { generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 import { createToolset } from "../tools/index.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
 import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext } from "../types.ts";
 import type { ToolFactory } from "../extension/types.ts";
+import type { McpClientManager } from "../mcp/client.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
 import { agentOutput } from "./console.ts";
 import { getApiKeyForProfile } from "../llm/profile.ts";
@@ -27,6 +28,7 @@ export async function processChannel(
     adapterManager: AdapterManager;
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
+    mcpManager: McpClientManager;
   },
 ): Promise<void> {
   const sessionKey = resolveSessionKey(deps.config, channelKey);
@@ -55,6 +57,7 @@ async function runSession(
     adapterManager: AdapterManager;
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
+    mcpManager: McpClientManager;
   },
   sessionId: string,
 ): Promise<void> {
@@ -79,7 +82,10 @@ async function runSession(
   };
 
   const toolsArray = createToolset(toolContext, deps.toolFactories);
-  const tools = Object.fromEntries(toolsArray.map(t => [t.title, t]));
+  const tools: Record<string, Tool> = Object.fromEntries(toolsArray.map(t => [t.title, t]));
+
+  const mcpTools = await deps.mcpManager.tools();
+  Object.assign(tools, mcpTools);
 
   const apiKey = await getApiKeyForProfile(profile);
 

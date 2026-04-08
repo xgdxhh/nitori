@@ -3,6 +3,7 @@ import { join, resolve, isAbsolute } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import * as v from "valibot";
 import { BUILTIN_TEMPLATE_DOCS, TEMPLATE_DOC_NAMES, EXTRA_DOCS, EXTRA_DOC_NAMES } from "../generated/builtin-templates.ts";
+import type { McpServerConfig } from "../mcp/client.ts";
 
 export interface AppConfig {
   workspaceDir: string;
@@ -25,6 +26,7 @@ export interface AppConfig {
       reserveTokens: number;
     };
   };
+  mcp: Record<string, McpServerConfig>;
   extensions: string[];
   telegramToken?: string;
 }
@@ -70,6 +72,15 @@ const AgentSchema = v.object({
   }), { enabled: true, reserveTokens: 16384 }),
 });
 
+const McpServerSchema = v.object({
+  transport: v.union([v.literal("stdio"), v.literal("http"), v.literal("sse")]),
+  command: v.optional(v.string()),
+  args: v.optional(v.array(v.string())),
+  env: v.optional(v.record(v.string(), v.string())),
+  url: v.optional(v.string()),
+  headers: v.optional(v.record(v.string(), v.string())),
+});
+
 export function loadConfig(): AppConfig {
   const home = resolvePath(process.env.NITORI_HOME || join(homedir(), ".nitori"));
   const settingsPath = join(home, "settings.json");
@@ -83,6 +94,7 @@ export function loadConfig(): AppConfig {
       profile: v.optional(v.string(), ""),
     }), { profiles: {}, profile: "" }),
     agent: v.optional(AgentSchema, { autoSendAssistantText: false, sessionScope: "channel", skills: { disabled: [] }, compaction: { enabled: true, reserveTokens: 16384 } }),
+    mcp: v.optional(v.record(v.string(), McpServerSchema), {}),
     extensions: v.optional(v.array(v.pipe(v.string(), v.regex(/^[a-z0-9-]+$/))), []),
     telegramToken: v.optional(v.string()),
   });
@@ -95,6 +107,7 @@ export function loadConfig(): AppConfig {
     ...parsed,
     workspaceDir: home,
     llm: { profiles, activeName },
+    mcp: parsed.mcp as Record<string, McpServerConfig>,
   } as AppConfig;
 }
 
