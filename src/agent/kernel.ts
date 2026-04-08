@@ -8,9 +8,10 @@ import type { ToolFactory } from "../extension/types.ts";
 import type { McpClientManager } from "../mcp/client.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
 import { agentOutput } from "./console.ts";
-import { getApiKeyForProfile } from "../llm/profile.ts";
+import { getApiKeyForProfile, getModel } from "../llm/profile.ts";
 import { loadImagesFromAttachments, normalizeInboxPrompt } from "./utils.ts";
 import { resolveSessionKey } from "../session.ts";
+import { createSubagentTool } from "../tools/subagent.ts";
 import type { LanguageModel } from "ai";
 
 const AGENT_MAX_RUN_MS = 30 * 60_000;
@@ -86,6 +87,9 @@ async function runSession(
 
   const mcpTools = await deps.mcpManager.tools();
   Object.assign(tools, mcpTools);
+
+  const subagentTool = createSubagentTool({ config, mcpManager: deps.mcpManager, toolContext });
+  if (subagentTool) tools.subagent = subagentTool;
 
   const apiKey = await getApiKeyForProfile(profile);
 
@@ -189,30 +193,6 @@ async function runSession(
   }
 }
 
-function getModel(profile: { provider: string; model: string; apiKey?: string; baseUrl?: string }): LanguageModel {
-  const { provider, model: modelId, apiKey, baseUrl } = profile;
-
-  switch (provider) {
-    case "anthropic": {
-      const { createAnthropic } = require("@ai-sdk/anthropic");
-      return createAnthropic({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY })(modelId);
-    }
-    case "openai": {
-      if (baseUrl) {
-        const { createOpenAICompatible } = require("@ai-sdk/openai-compatible");
-        return createOpenAICompatible({ baseURL: baseUrl, apiKey: apiKey || process.env.OPENAI_API_KEY })(modelId);
-      }
-      const { createOpenAI } = require("@ai-sdk/openai");
-      return createOpenAI({ apiKey: apiKey || process.env.OPENAI_API_KEY })(modelId);
-    }
-    case "google": {
-      const { createGoogleGenerativeAI } = require("@ai-sdk/google");
-      return createGoogleGenerativeAI({ apiKey: apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY })(modelId);
-    }
-    default:
-      throw new Error(`Unsupported provider: ${provider}`);
-  }
-}
 
 async function scheduleAutoCompaction(
   sessionKey: string,

@@ -83,7 +83,8 @@ Run `nitori chat` for interactive terminal chat.
 
 ### Model Context Protocol (MCP)
 
-Nitori supports connecting to MCP servers to dynamically expand its toolset. MCP tools are namespaced by their server name: `serverName:toolName`.
+Nitori supports connecting to MCP servers to dynamically expand its toolset. MCP
+tools are namespaced by their server name: `serverName:toolName`.
 
 Configure servers in `settings.json`:
 
@@ -93,7 +94,11 @@ Configure servers in `settings.json`:
     "filesystem": {
       "transport": "stdio",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/extra/files"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/extra/files"
+      ]
     },
     "fetch": {
       "transport": "http",
@@ -105,6 +110,23 @@ Configure servers in `settings.json`:
 
 Supported transports: `stdio`, `http`, `sse`.
 
+### subagent
+
+```json
+{
+  "subagents": {
+    "researcher": {
+      "prompt": "You are a research assistant...",
+      "profile": "gemini",
+      "tools": {
+        "builtins": ["web_search", "web_fetch", "read"],
+        "mcp": ["browser:*"]
+      },
+      "maxSteps": 10
+    }
+  }
+}
+```
 
 ## LLM Configuration
 
@@ -136,15 +158,14 @@ Supported transports: `stdio`, `http`, `sse`.
 
 ### MCP Configuration
 
-| Field       | Type                     | Description                                      |
-| ----------- | ------------------------ | ------------------------------------------------ |
-| `transport` | `stdio` \| `http` \| `sse` | Communication method                             |
-| `command`   | `string`                 | Command to run (for `stdio`)                     |
-| `args`      | `string[]`               | Arguments for the command                        |
-| `env`       | `Record<string, string>` | Environment variables                            |
-| `url`       | `string`                 | Server URL (for `http`/`sse`)                    |
-| `headers`   | `Record<string, string>` | Custom HTTP headers                              |
-
+| Field       | Type                       | Description                   |
+| ----------- | -------------------------- | ----------------------------- |
+| `transport` | `stdio` \| `http` \| `sse` | Communication method          |
+| `command`   | `string`                   | Command to run (for `stdio`)  |
+| `args`      | `string[]`                 | Arguments for the command     |
+| `env`       | `Record<string, string>`   | Environment variables         |
+| `url`       | `string`                   | Server URL (for `http`/`sse`) |
+| `headers`   | `Record<string, string>`   | Custom HTTP headers           |
 
 ### Supported Providers
 

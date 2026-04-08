@@ -27,6 +27,7 @@ export interface AppConfig {
     };
   };
   mcp: Record<string, McpServerConfig>;
+  subagents: Record<string, SubagentConfig>;
   extensions: string[];
   telegramToken?: string;
 }
@@ -40,6 +41,16 @@ export interface LlmProfile {
   providerOptions?: Record<string, unknown>;
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
   compat?: Record<string, unknown>;
+}
+
+export interface SubagentConfig {
+  prompt: string;
+  profile: string;
+  tools: {
+    builtins: string[];
+    mcp: string[];
+  };
+  maxSteps: number;
 }
 
 const IngressSchema = v.object({
@@ -81,6 +92,18 @@ const McpServerSchema = v.object({
   headers: v.optional(v.record(v.string(), v.string())),
 });
 
+const SubagentToolsSchema = v.object({
+  builtins: v.optional(v.array(v.string()), []),
+  mcp: v.optional(v.array(v.string()), []),
+});
+
+const SubagentConfigSchema = v.object({
+  prompt: v.string(),
+  profile: v.string(),
+  tools: v.optional(SubagentToolsSchema, { builtins: [], mcp: [] }),
+  maxSteps: v.optional(v.number(), 10),
+});
+
 export function loadConfig(): AppConfig {
   const home = resolvePath(process.env.NITORI_HOME || join(homedir(), ".nitori"));
   const settingsPath = join(home, "settings.json");
@@ -95,6 +118,7 @@ export function loadConfig(): AppConfig {
     }), { profiles: {}, profile: "" }),
     agent: v.optional(AgentSchema, { autoSendAssistantText: false, sessionScope: "channel", skills: { disabled: [] }, compaction: { enabled: true, reserveTokens: 16384 } }),
     mcp: v.optional(v.record(v.string(), McpServerSchema), {}),
+    subagents: v.optional(v.record(v.string(), SubagentConfigSchema), {}),
     extensions: v.optional(v.array(v.pipe(v.string(), v.regex(/^[a-z0-9-]+$/))), []),
     telegramToken: v.optional(v.string()),
   });
@@ -108,6 +132,7 @@ export function loadConfig(): AppConfig {
     workspaceDir: home,
     llm: { profiles, activeName },
     mcp: parsed.mcp as Record<string, McpServerConfig>,
+    subagents: parsed.subagents as Record<string, SubagentConfig>,
   } as AppConfig;
 }
 
