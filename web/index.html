@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nitori Web Client</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: #1e293b;
+            --accent-primary: #38bdf8;
+            --accent-secondary: #818cf8;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --bubble-user: #334155;
+            --bubble-ai: #1e293b;
+            --border-color: #334155;
+            --gradient: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.4rem 0.8rem;
+            border-radius: 99px;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+            transition: background 0.3s;
+        }
+        .status-dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 1rem 1.25rem;
+            border-radius: 1.25rem;
+            line-height: 1.6;
+            position: relative;
+            animation: fadeIn 0.3s ease-out;
+            word-wrap: break-word;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--bubble-user);
+            border-bottom-right-radius: 0.25rem;
+            color: var(--text-primary);
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: var(--bubble-ai);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 0.25rem;
+        }
+
+        .text-content {
+            white-space: pre-wrap;
+        }
+
+        .tool-call {
+            font-size: 0.8rem;
+            background: rgba(56, 189, 248, 0.05);
+            border: 1px solid rgba(56, 189, 248, 0.15);
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            margin-top: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .tool-args {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            color: var(--text-secondary);
+            background: rgba(0,0,0,0.2);
+            padding: 0.5rem;
+            border-radius: 0.4rem;
+            overflow-x: auto;
+            font-size: 0.75rem;
+        }
+
+        .input-wrapper {
+            padding: 1.5rem 2rem;
+            background: linear-gradient(transparent, var(--bg-color) 20%);
+        }
+
+        .input-container {
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+            background: var(--surface-color);
+            border-radius: 1.25rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: flex-end;
+            padding: 0.6rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-container:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2), 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+        }
+
+        textarea {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            padding: 0.6rem 0.8rem;
+            resize: none;
+            font-family: inherit;
+            font-size: 1rem;
+            max-height: 200px;
+            line-height: 1.5;
+        }
+
+        button#send-btn {
+            background: var(--gradient);
+            border: none;
+            width: 38px;
+            height: 38px;
+            border-radius: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            margin-bottom: 2px;
+            margin-right: 2px;
+        }
+
+        button#send-btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+        button#send-btn:active { transform: translateY(0) scale(0.95); }
+        button#send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+        #modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.9);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(12px);
+            transition: opacity 0.3s;
+        }
+
+        .modal {
+            background: var(--surface-color);
+            padding: 2.5rem;
+            border-radius: 2rem;
+            border: 1px solid var(--border-color);
+            width: 100%;
+            max-width: 420px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal h2 { font-family: 'Outfit', sans-serif; font-size: 1.75rem; }
+
+        .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
+        .form-group label { font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
+
+        .modal input {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            padding: 0.8rem 1rem;
+            border-radius: 0.75rem;
+            color: var(--text-primary);
+            outline: none;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .modal input:focus { border-color: var(--accent-primary); }
+
+        .modal button {
+            background: var(--gradient);
+            border: none;
+            padding: 1rem;
+            border-radius: 1rem;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 1rem;
+            margin-top: 1rem;
+            transition: all 0.2s;
+        }
+        .modal button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+        #chat-container::-webkit-scrollbar { width: 5px; }
+        #chat-container::-webkit-scrollbar-track { background: transparent; }
+        #chat-container::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="modal-backdrop">
+        <div class="modal">
+            <h2>Nitori <span style="font-weight: 400; opacity: 0.6;">Connect</span></h2>
+            <div class="form-group">
+                <label>Access Token</label>
+                <input type="password" id="auth-token" placeholder="Enter your token">
+            </div>
+            <div class="form-group">
+                <label>Channel Key</label>
+                <input type="text" id="channel-key" placeholder="e.g. web:default" value="web:default">
+            </div>
+            <button id="auth-btn">Start Session</button>
+        </div>
+    </div>
+
+    <header>
+        <h1>NITORI</h1>
+        <div class="status-badge">
+            <div class="status-dot" id="status-dot"></div>
+            <span id="status-text">Disconnected</span>
+        </div>
+    </header>
+
+    <main id="chat-container"></main>
+
+    <div class="input-wrapper">
+        <div class="input-container">
+            <textarea id="user-input" placeholder="How can I help you today?" rows="1"></textarea>
+            <button id="send-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const backdrop = document.getElementById('modal-backdrop');
+        
+        let ws;
+        let currentAssistantMsg = null;
+
+        // Auto-resize textarea
+        userInput.addEventListener('input', () => {
+            userInput.style.height = 'auto';
+            userInput.style.height = Math.min(userInput.scrollHeight, 200) + 'px';
+        });
+
+        // Restore settings from local storage
+        const savedToken = localStorage.getItem('nitori_token');
+        const savedChannel = localStorage.getItem('nitori_channel');
+        
+        if (savedToken) document.getElementById('auth-token').value = savedToken;
+        if (savedChannel) document.getElementById('channel-key').value = savedChannel;
+
+        // Auto-connect if settings exist
+        if (savedToken && savedChannel) {
+            connect(savedToken, savedChannel);
+        }
+
+        document.getElementById('auth-btn').onclick = () => {
+            const token = document.getElementById('auth-token').value.trim();
+            const channelKey = document.getElementById('channel-key').value.trim();
+            if (!token || !channelKey) return;
+            
+            localStorage.setItem('nitori_token', token);
+            localStorage.setItem('nitori_channel', channelKey);
+            connect(token, channelKey);
+        };
+
+        function connect(token, channelKey) {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/ws`;
+            
+            statusText.innerText = 'Connecting...';
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'auth', token, channelKey }));
+            };
+
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                handleEvent(data);
+            };
+
+            ws.onclose = () => {
+                statusDot.classList.remove('online');
+                statusText.innerText = 'Connection Lost';
+                backdrop.style.opacity = '1';
+                backdrop.style.pointerEvents = 'auto';
+                backdrop.style.display = 'flex';
+            };
+
+            ws.onerror = () => {
+                alert('Connection error. Check if the server is running and the token is correct.');
+            };
+        }
+
+        function handleEvent(event) {
+            if (event.type === 'auth-success') {
+                backdrop.style.opacity = '0';
+                backdrop.style.pointerEvents = 'none';
+                setTimeout(() => backdrop.style.display = 'none', 300);
+                statusDot.classList.add('online');
+                statusText.innerText = 'Online';
+                return;
+            }
+
+            if (event.type === 'assistant-start') {
+                currentAssistantMsg = createMessageElement('assistant', '');
+            } else if (event.type === 'text-delta') {
+                if (!currentAssistantMsg) currentAssistantMsg = createMessageElement('assistant', '');
+                const textSpan = currentAssistantMsg.querySelector('.text-content');
+                textSpan.textContent += event.delta;
+                scrollToBottom();
+            } else if (event.type === 'tool-call-start') {
+                if (!currentAssistantMsg) currentAssistantMsg = createMessageElement('assistant', '');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'tool-call';
+                toolDiv.innerHTML = `
+                    <div class="tool-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1 2.83 0l1.25 1.25a2 2 0 0 1 0 2.83l-3.77 3.77a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 0 1.4l-5.86 5.86a2 2 0 0 1-2.83 0l-8.48-8.48a2 2 0 0 1 0-2.83l5.86-5.86ZM7 11l-4 4v6h6l4-4M15 7l3 3"/></svg>
+                        <span>${event.toolName}</span>
+                    </div>
+                    <div class="tool-args">${JSON.stringify(event.args, null, 2)}</div>
+                `;
+                currentAssistantMsg.appendChild(toolDiv);
+                scrollToBottom();
+            } else if (event.type === 'turn-finish' || event.type === 'turn-error') {
+                currentAssistantMsg = null;
+            }
+        }
+
+        function createMessageElement(role, text) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerHTML = `<div class="text-content">${text}</div>`;
+            chatContainer.appendChild(div);
+            scrollToBottom();
+            return div;
+        }
+
+        function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            createMessageElement('user', text);
+            ws.send(JSON.stringify({ type: 'message', text }));
+            
+            userInput.value = '';
+            userInput.style.height = 'auto';
+        }
+
+        sendBtn.onclick = sendMessage;
+        userInput.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        };
+
+        function scrollToBottom() {
+            chatContainer.scrollTo({
+                top: chatContainer.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+    </script>
+</body>
+</html>

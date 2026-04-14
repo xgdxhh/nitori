@@ -6,6 +6,7 @@ import { createScheduleHandler } from "../schedule/handler.ts";
 import { handleControlCommand } from "./commands.ts";
 import { TelegramAdapter } from "../adapters/telegram.ts";
 import { CliAdapter } from "../adapters/cli.ts";
+import { createWebAdapter } from "../adapters/web.ts";
 import { AdapterManager } from "../adapters/manager.ts";
 import { EventScheduler } from "../schedule/scheduler.ts";
 import type { InboundMessage, TriggerType } from "../types.ts";
@@ -44,6 +45,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
   const scheduleHandler = createScheduleHandler(schedulerStorage, () => scheduler?.signal());
   const adapterManager = new AdapterManager();
   const mcpManager = createMcpManager();
+  const webAdapterInstance = createWebAdapter();
 
   async function processAndReply(message: InboundMessage) {
     await processChannel(message.channelKey, [message], {
@@ -93,6 +95,9 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
     adapterManager.register(adapter);
   }
 
+  // Register Web Adapter
+  adapterManager.register(webAdapterInstance.adapter);
+
   if (options.cliMode) {
     adapterManager.register(new CliAdapter(messageHandler));
   } else {
@@ -106,10 +111,13 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
   });
 
   if (shouldStartIngressServer(config)) {
-    ingressServer = createIngressServer(config, messageHandler.onInbound);
+    ingressServer = createIngressServer(config, messageHandler.onInbound, webAdapterInstance);
   }
 
-  adapterManager.events.on("stream", (_channelKey: string, event: AgentStreamEvent) => {
+  adapterManager.events.on("stream", (channelKey: string, event: AgentStreamEvent) => {
+    // Forward to WebAdapter for real-time UI
+    webAdapterInstance.pushEvent(channelKey, event);
+
     switch (event.type) {
       case "assistant-start":
         agentOutput.assistantStarted();
