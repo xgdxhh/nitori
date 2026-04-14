@@ -173,7 +173,17 @@ export class TelegramAdapter implements Adapter {
 
   private async extractAttachments(msg: Message & Update.NonChannel): Promise<AttachmentRef[]> {
     const out: AttachmentRef[] = [];
+    await this.fillAttachments(msg, out);
 
+    // If current message has no images but replies to one, pull from the replied message
+    if (out.length === 0 && msg.reply_to_message) {
+      await this.fillAttachments(msg.reply_to_message as any, out);
+    }
+
+    return out;
+  }
+
+  private async fillAttachments(msg: Message, out: AttachmentRef[]): Promise<void> {
     if (msg.photo?.length) {
       const largest = msg.photo[msg.photo.length - 1];
       const { data, mimeType } = await this.downloadTelegramFile(largest.file_id);
@@ -237,8 +247,6 @@ export class TelegramAdapter implements Adapter {
         fileName: msg.animation.file_name,
       });
     }
-
-    return out;
   }
 
   private requireBot(): Bot {
