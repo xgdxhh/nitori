@@ -54,24 +54,6 @@ export class AdapterManager {
       : Promise.resolve(`no-reaction:${messageId}:${emoji}`);
   }
 
-  fetchImageContent(channelKey: string, path: string): Promise<{ data: string; mimeType: string }> {
-    let adapter: Adapter | undefined;
-    for (const a of this.adapters.values()) {
-      if (a.canHandleFile?.(path)) {
-        adapter = a;
-        break;
-      }
-    }
-
-    if (!adapter) {
-      adapter = this.requireAdapterForChannel(channelKey);
-    }
-
-    if (!adapter.fetchImageContent) {
-      return Promise.reject(new Error(`fetchImageContent not supported by adapter '${adapter.name}'`));
-    }
-    return adapter.fetchImageContent(channelKey, path);
-  }
 
   shouldProcessRealtime(message: InboundMessage): boolean {
     const trigger = message.trigger;

@@ -16,6 +16,7 @@ export interface SenderInfo {
 export interface AttachmentRef {
   type: "image" | "video" | "audio" | "file";
   path: string;
+  data?: string; // base64
   mimeType?: string;
   size?: number;
   fileName?: string;
@@ -59,7 +60,6 @@ export interface Adapter {
   sendMessage(channelKey: string, text: string, replyToMessageId?: string): Promise<string>;
   sendFile?(channelKey: string, filePath: string, caption?: string): Promise<string>;
   setReaction?(channelKey: string, messageId: string, emoji: string): Promise<string>;
-  fetchImageContent?(channelKey: string, path: string): Promise<{ data: string; mimeType: string }>;
 }
 
 // ── Tool types ─────────────────────────────────────────────────

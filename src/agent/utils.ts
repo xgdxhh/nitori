@@ -28,10 +28,16 @@ export function extractText(content: unknown): string {
 
 export function loadImagesFromAttachments(attachments: InboundMessage["attachments"]): ImageContent[] {
   return attachments
-    .filter(a => a.type === "image" && a.path && !a.path.includes("://"))
+    .filter(a => a.type === "image")
     .map(a => {
-      const abs = resolve(a.path);
-      return existsSync(abs) ? { type: "image" as const, data: readFileSync(abs).toString("base64"), mimeType: a.mimeType || "image/jpeg" } : null;
+      if (a.data) {
+        return { type: "image" as const, data: a.data, mimeType: a.mimeType || "image/jpeg" };
+      }
+      if (a.path && !a.path.includes("://")) {
+        const abs = resolve(a.path);
+        return existsSync(abs) ? { type: "image" as const, data: readFileSync(abs).toString("base64"), mimeType: a.mimeType || "image/jpeg" } : null;
+      }
+      return null;
     })
     .filter((x): x is ImageContent => !!x);
 }

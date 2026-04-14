@@ -95,12 +95,6 @@ export class TelegramAdapter implements Adapter {
     }
   }
 
-  async fetchImageContent(_channelKey: string, path: string): Promise<{ data: string; mimeType: string }> {
-    const safeFileId = path.replace("telegram://", "").trim();
-    if (!safeFileId) throw new Error("path is required");
-    const { data, mimeType } = await this.downloadTelegramFile(safeFileId);
-    return { data: data.toString("base64"), mimeType };
-  }
 
   private async downloadTelegramFile(fileId: string): Promise<{ data: Buffer; mimeType: string }> {
     const bot = this.requireBot();
@@ -167,7 +161,7 @@ export class TelegramAdapter implements Adapter {
       },
       text: messageText,
       command,
-      attachments: this.extractAttachments(msg),
+      attachments: await this.extractAttachments(msg),
       replyToMessageId: isReplyToBot ? String(reply_to_message!.message_id) : undefined,
       raw: { chat, message_id },
       receivedAt: new Date((date || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
@@ -177,15 +171,17 @@ export class TelegramAdapter implements Adapter {
     this.handler.onInbound(inbound).catch((error) => console.error("Telegram inbound dispatch failed", error));
   }
 
-  private extractAttachments(msg: Message & Update.NonChannel): AttachmentRef[] {
+  private async extractAttachments(msg: Message & Update.NonChannel): Promise<AttachmentRef[]> {
     const out: AttachmentRef[] = [];
 
     if (msg.photo?.length) {
       const largest = msg.photo[msg.photo.length - 1];
+      const { data, mimeType } = await this.downloadTelegramFile(largest.file_id);
       out.push({
         type: "image",
         path: `telegram://${largest.file_id}`,
-        mimeType: "image/jpeg",
+        data: data.toString("base64"),
+        mimeType: mimeType || "image/jpeg",
         size: largest.file_size,
       });
     }
@@ -231,10 +227,12 @@ export class TelegramAdapter implements Adapter {
     }
 
     if (msg.animation?.file_id) {
+      const { data, mimeType } = await this.downloadTelegramFile(msg.animation.file_id);
       out.push({
         type: "image",
         path: `telegram://${msg.animation.file_id}`,
-        mimeType: msg.animation.mime_type ?? "video/mp4",
+        data: data.toString("base64"),
+        mimeType: mimeType || "image/gif",
         size: msg.animation.file_size,
         fileName: msg.animation.file_name,
       });
