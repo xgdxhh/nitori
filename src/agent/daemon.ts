@@ -12,7 +12,7 @@ import type { InboundMessage, TriggerType } from "../types.ts";
 import { createIngressServer, shouldStartIngressServer, type IngressServer } from "../ingress/server.ts";
 
 import { loadExtensions, type ExtensionRegistry } from "../extension/loader.ts";
-import { McpClientManager } from "../mcp/client.ts";
+import { createMcpManager } from "../mcp/client.ts";
 import type { AppConfig } from "../config/index.ts";
 import { agentOutput } from "./console.ts";
 import type { AgentStreamEvent } from "../types.ts";
@@ -43,7 +43,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
   let extRegistry: ExtensionRegistry | null = null;
   const scheduleHandler = createScheduleHandler(schedulerStorage, () => scheduler?.signal());
   const adapterManager = new AdapterManager();
-  const mcpManager = new McpClientManager();
+  const mcpManager = createMcpManager();
 
   async function processAndReply(message: InboundMessage) {
     await processChannel(message.channelKey, [message], {
@@ -132,7 +132,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
     }
   });
 
-  await mcpManager.start(config.mcp);
+  await mcpManager.start(config.mcp, config.workspaceDir);
   await adapterManager.start();
   scheduler.start();
 

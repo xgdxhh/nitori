@@ -5,7 +5,7 @@ import { createToolset } from "../tools/index.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
 import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext, AgentHooks, TurnContext } from "../types.ts";
 import type { ToolFactory } from "../extension/types.ts";
-import type { McpClientManager } from "../mcp/client.ts";
+import type { McpManager } from "../mcp/client.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
 import { getApiKeyForProfile, getModel } from "../llm/profile.ts";
 import { loadImagesFromAttachments, normalizeInboxPrompt } from "./utils.ts";
@@ -29,7 +29,7 @@ export async function processChannel(
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
     turnHooks?: AgentHooks[];
-    mcpManager: McpClientManager;
+    mcpManager: McpManager;
   },
 ): Promise<void> {
   const sessionKey = resolveSessionKey(deps.config, channelKey);
@@ -59,7 +59,7 @@ async function runSession(
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
     turnHooks?: AgentHooks[];
-    mcpManager: McpClientManager;
+    mcpManager: McpManager;
   },
   sessionId: string,
 ): Promise<void> {

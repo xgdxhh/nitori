@@ -1,14 +1,14 @@
 import { generateText, stepCountIs, tool, type Tool } from "ai";
 import { z } from "zod";
 import type { AppConfig, SubagentConfig } from "../config/index.ts";
-import type { McpClientManager } from "../mcp/client.ts";
+import type { McpManager } from "../mcp/client.ts";
 import type { ToolContext } from "../types.ts";
 import { createToolset } from "./index.ts";
 import { getModel } from "../llm/profile.ts";
 
 interface SubagentDeps {
   config: AppConfig;
-  mcpManager: McpClientManager;
+  mcpManager: McpManager;
   toolContext: ToolContext;
 }
 
@@ -53,7 +53,7 @@ export function createSubagentTool(deps: SubagentDeps): Tool | null {
 async function buildSubagentTools(
   toolsConfig: SubagentConfig["tools"],
   toolContext: ToolContext,
-  mcpManager: McpClientManager,
+  mcpManager: McpManager,
 ): Promise<Record<string, Tool>> {
   const result: Record<string, Tool> = {};
 

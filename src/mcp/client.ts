@@ -1,6 +1,8 @@
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "ai";
+import { createWriteStream, mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 export interface McpServerConfig {
   transport: "stdio" | "http" | "sse";
@@ -11,40 +13,49 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
 }
 
-interface ManagedClient {
-  name: string;
-  client: MCPClient;
+export interface McpManager {
+  start: (servers: Record<string, McpServerConfig>, workspaceDir: string) => Promise<void>;
+  tools: () => Promise<Record<string, Tool>>;
+  close: () => Promise<void>;
 }
 
-export class McpClientManager {
-  private clients: ManagedClient[] = [];
+export function createMcpManager(): McpManager {
+  let clients: { name: string; client: MCPClient }[] = [];
 
-  async start(servers: Record<string, McpServerConfig>): Promise<void> {
+  const start = async (servers: Record<string, McpServerConfig>, workspaceDir: string) => {
     const entries = Object.entries(servers);
     if (entries.length === 0) return;
 
+    // Ensure logs directory exists
+    const logDir = join(workspaceDir, "logs");
+    try {
+      mkdirSync(logDir, { recursive: true });
+    } catch {
+      // Ignore
+    }
+
     const results = await Promise.allSettled(
       entries.map(async ([name, config]) => {
-        const client = await this.createClient(name, config);
+        const client = await createClient(name, config, logDir);
         return { name, client };
       }),
     );
 
     for (const result of results) {
       if (result.status === "fulfilled") {
-        this.clients.push(result.value);
+        clients.push(result.value);
         console.log(`[mcp] connected: ${result.value.name}`);
       } else {
         console.error(`[mcp] failed to connect:`, result.reason);
       }
     }
-  }
+  };
 
-  async tools(): Promise<Record<string, Tool>> {
+  const tools = async () => {
     const merged: Record<string, Tool> = {};
 
     const results = await Promise.allSettled(
-      this.clients.map(async ({ name, client }) => {
+      clients.map(async ({ name, client }) => {
         const tools = await client.tools() as Record<string, Tool>;
         return { name, tools };
       }),
@@ -61,34 +72,51 @@ export class McpClientManager {
     }
 
     return merged;
-  }
+  };
 
-  async close(): Promise<void> {
-    await Promise.allSettled(
-      this.clients.map(({ client }) => client.close()),
-    );
-    this.clients = [];
-  }
+  const close = async () => {
+    await Promise.allSettled(clients.map(({ client }) => client.close()));
+    clients = [];
+  };
 
-  private async createClient(name: string, config: McpServerConfig): Promise<MCPClient> {
-    if (config.transport === "stdio") {
-      return createMCPClient({
-        name,
-        transport: new StdioClientTransport({
-          command: config.command!,
-          args: config.args,
-          env: config.env as Record<string, string> | undefined,
-        }),
-      });
+  return { start, tools, close };
+}
+
+async function createClient(name: string, config: McpServerConfig, logDir: string): Promise<MCPClient> {
+  if (config.transport === "stdio") {
+    const logFile = join(logDir, `mcp-${name}.log`);
+    const logStream = createWriteStream(logFile, { flags: "a" });
+    const timestamp = new Date().toISOString();
+    logStream.write(`\n--- Starting ${name} at ${timestamp} ---\n`);
+
+    const transport = new StdioClientTransport({
+      command: config.command!,
+      args: config.args,
+      env: {
+        ...process.env,
+        ...config.env,
+      },
+      stderr: "pipe",
+    } as any);
+
+    // Redirect stderr to file
+    const stderr = (transport as any).stderr;
+    if (stderr) {
+      stderr.pipe(logStream);
     }
 
     return createMCPClient({
       name,
-      transport: {
-        type: config.transport,
-        url: config.url!,
-        headers: config.headers,
-      },
+      transport,
     });
   }
+
+  return createMCPClient({
+    name,
+    transport: {
+      type: config.transport,
+      url: config.url!,
+      headers: config.headers,
+    },
+  });
 }
