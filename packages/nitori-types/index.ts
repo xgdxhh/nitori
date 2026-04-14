@@ -142,6 +142,8 @@ export interface ExtensionContext {
   workspaceDir: string;
   /** Stable host capabilities exposed to the extension runtime. */
   host: ExtensionHost;
+  /** Register a lifecycle hook to intercept agent turns */
+  registerHook(hook: AgentHooks): void;
 }
 
 /**
@@ -169,3 +171,31 @@ export interface NitoriExtension extends ExtensionMetadata {
   /** Lifecycle hook: called when the extension is disabled or the daemon shuts down */
   deactivate?(): void | Promise<void>;
 }
+
+// ── Event Bus & Hooks ──────────────────────────────────────────
+
+export type AgentStreamEvent =
+  | { type: "assistant-start" }
+  | { type: "text-delta"; delta: string }
+  | { type: "thinking"; delta: string }
+  | { type: "tool-call-start"; toolCallId: string; toolName: string; args: unknown }
+  | { type: "tool-call-result"; toolCallId: string; toolName: string; result: unknown; isError: boolean }
+  | { type: "turn-finish"; text: string; finishReason: string }
+  | { type: "turn-error"; error: unknown };
+
+export interface TurnContext {
+  channelKey: string;
+  sessionKey: string;
+  inboundMessages: InboundMessage[];
+  history: Array<{ role: string; content: unknown }>;
+  newMessages: Array<{ role: string; content: unknown }>;
+  llmMessages: Array<{ role: string; content: unknown }>;
+  tools: Record<string, Tool>;
+  state: Record<string, unknown>;
+}
+
+export interface AgentHooks {
+  onBeforeTurn?: (ctx: TurnContext) => Promise<void> | void;
+  onAfterTurn?: (ctx: TurnContext, result: { text: string; toolCalls: any[] }) => Promise<void> | void;
+}
+

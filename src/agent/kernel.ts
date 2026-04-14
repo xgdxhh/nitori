@@ -1,13 +1,12 @@
-import { streamText, stepCountIs, generateText, type Tool } from "ai";
+import { streamText, generateText, stepCountIs, type Tool } from "ai";
 import type { AppConfig } from "../config/index.ts";
 import { generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 import { createToolset } from "../tools/index.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
-import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext } from "../types.ts";
+import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext, AgentHooks, TurnContext } from "../types.ts";
 import type { ToolFactory } from "../extension/types.ts";
 import type { McpClientManager } from "../mcp/client.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
-import { agentOutput } from "./console.ts";
 import { getApiKeyForProfile, getModel } from "../llm/profile.ts";
 import { loadImagesFromAttachments, normalizeInboxPrompt } from "./utils.ts";
 import { resolveSessionKey } from "../session.ts";
@@ -29,6 +28,7 @@ export async function processChannel(
     adapterManager: AdapterManager;
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
+    turnHooks?: AgentHooks[];
     mcpManager: McpClientManager;
   },
 ): Promise<void> {
@@ -58,6 +58,7 @@ async function runSession(
     adapterManager: AdapterManager;
     scheduleHandler: (channelKey: string, req: CronJobRequest) => Promise<CronJobResult>;
     toolFactories?: ToolFactory[];
+    turnHooks?: AgentHooks[];
     mcpManager: McpClientManager;
   },
   sessionId: string,
@@ -71,7 +72,14 @@ async function runSession(
   const latest = inMessages.at(-1)!;
 
   const session = sessionStorage.loadSession(sessionKey, sessionId);
-  const messages: Array<{ role: string; content: unknown }> = [...session.messages];
+  
+  const images = inMessages.flatMap(m => loadImagesFromAttachments(m.attachments));
+  const userPrompt = normalizeInboxPrompt(inMessages, config.agent.hideSourceInfo);
+  const userContent = images.length > 0
+    ? [{ type: "text", text: userPrompt }, ...images.map(img => ({ type: "image", image: img.data, mimeType: img.mimeType }))]
+    : userPrompt;
+
+  const currentUserMessage = { role: "user" as const, content: userContent };
 
   const toolContext: ToolContext = {
     adapterManager,
@@ -91,44 +99,55 @@ async function runSession(
   const subagentTool = createSubagentTool({ config, mcpManager: deps.mcpManager, toolContext });
   if (subagentTool) tools.subagent = subagentTool;
 
-  const apiKey = await getApiKeyForProfile(profile);
+  const turnCtx: TurnContext = {
+    channelKey,
+    sessionKey,
+    inboundMessages: inMessages,
+    history: session.messages,
+    newMessages: [currentUserMessage],
+    llmMessages: [...session.messages, currentUserMessage],
+    tools,
+    state: {},
+  };
 
-  const images = inMessages.flatMap(m => loadImagesFromAttachments(m.attachments));
-  const userPrompt = normalizeInboxPrompt(inMessages, config.agent.hideSourceInfo);
-  const userContent = images.length > 0
-    ? [{ type: "text", text: userPrompt }, ...images.map(img => ({ type: "image", image: img.data, mimeType: img.mimeType }))]
-    : userPrompt;
+  if (deps.turnHooks) {
+    for (const hook of deps.turnHooks) {
+      if (hook.onBeforeTurn) await hook.onBeforeTurn(turnCtx);
+    }
+  }
 
-  messages.push({ role: "user", content: userContent });
+  const finalSystemPrompt = buildSystemPrompt(config.workspaceDir, config);
 
   let fullResponse = "";
-  let hasShownThinking = false;
+  let isFirstDelta = true;
   const toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown; result: unknown }> = [];
 
   try {
     const result = streamText({
       model,
-      system: buildSystemPrompt(config.workspaceDir, config),
-      messages: messages as never,
-      tools,
+      system: finalSystemPrompt,
+      messages: turnCtx.llmMessages as never,
+      tools: turnCtx.tools,
       stopWhen: stepCountIs(20),
       onChunk: ({ chunk }) => {
         if (chunk.type === "text-delta") {
-          const delta = chunk.text;
-          if (delta.includes("<thinking>")) {
-            if (!hasShownThinking) {
-              agentOutput.thinking();
-              hasShownThinking = true;
-            }
-            agentOutput.thinkingDelta(delta.replace(/<[^>]+>/g, ""));
-          } else {
-            fullResponse += delta;
+          if (isFirstDelta) {
+            deps.adapterManager.emitStreamEvent(channelKey, { type: "assistant-start" });
+            isFirstDelta = false;
           }
+          const delta = chunk.text;
+          fullResponse += delta;
+          deps.adapterManager.emitStreamEvent(channelKey, { type: "text-delta", delta });
         }
       },
       experimental_onToolCallStart: (event) => {
         const { toolCall } = event;
-        agentOutput.toolCall(toolCall.toolName, toolCall.input as Record<string, unknown>);
+        deps.adapterManager.emitStreamEvent(channelKey, {
+          type: "tool-call-start",
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          args: toolCall.input
+        });
       },
       experimental_onToolCallFinish: (event) => {
         const { toolCall } = event;
@@ -139,45 +158,44 @@ async function runSession(
           input: toolCall.input,
           result: (toolCall as { result?: unknown }).result,
         });
-        agentOutput.toolResult(toolCall.toolName, 0, isError);
+        deps.adapterManager.emitStreamEvent(channelKey, {
+          type: "tool-call-result",
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          result: (toolCall as { result?: unknown }).result,
+          isError,
+        });
       },
       onFinish: (event) => {
-        if (toolCalls.length > 0) {
-          messages.push({
-            role: "assistant",
-            content: fullResponse,
-            toolCalls: toolCalls.map(tc => ({
-              toolCallId: tc.toolCallId,
-              toolName: tc.toolName,
-              input: tc.input,
-            })),
-          } as { role: string; content: unknown; toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> });
-          for (const tc of toolCalls) {
-            messages.push({
-              role: "tool",
-              toolCallId: tc.toolCallId,
-              content: tc.result,
-            } as { role: string; toolCallId: string; content: unknown });
+        if (event.response?.messages) {
+          const generatedMessages = [...event.response.messages];
+          if (generatedMessages.length > 0 && event.usage) {
+             const lastMsg = generatedMessages[generatedMessages.length - 1];
+             if (lastMsg.role === "assistant") {
+                (lastMsg as any).usage = event.usage;
+             }
           }
+          turnCtx.newMessages.push(...(generatedMessages as never[]));
+        } else {
+          const text = event.finishReason === "error" ? fullResponse : event.text;
+          if (text) turnCtx.newMessages.push({ role: "assistant", content: text, usage: event.usage } as never);
         }
 
-        const text = event.finishReason === "error" ? fullResponse : event.text;
-        if (text) {
-          if (toolCalls.length === 0) {
-            messages.push({ role: "assistant", content: text });
-          }
-          agentOutput.assistant(text);
-          if (config.agent.autoSendAssistantText && latest.trigger !== "scheduled") {
-            adapterManager.sendMessage(channelKey, text, latest.id).catch((e) => {
-              agentOutput.error(`Failed to send reply to ${channelKey}: ${e instanceof Error ? e.message : e}`);
-            });
-          }
+        deps.adapterManager.emitStreamEvent(channelKey, {
+          type: "turn-finish",
+          text: fullResponse,
+          finishReason: event.finishReason
+        });
+
+        const finalOutputText = event.finishReason === "error" ? fullResponse : event.text;
+        if (finalOutputText && config.agent.autoSendAssistantText && latest.trigger !== "scheduled") {
+          adapterManager.sendMessage(channelKey, finalOutputText, latest.id).catch((e) => {
+            console.error(`[Agent] Failed to send reply to ${channelKey}:`, e);
+          });
         }
 
-        if (event.finishReason === "error") agentOutput.error("Agent run error");
-
-        if (config.agent.compaction.enabled) {
-          scheduleAutoCompaction(sessionKey, sessionId, session.messages, { sessionStorage, model, apiKey, reserveTokens: config.agent.compaction.reserveTokens });
+        if (event.finishReason === "error") {
+          deps.adapterManager.emitStreamEvent(channelKey, { type: "turn-error", error: new Error("Agent run error") });
         }
       },
     });
@@ -186,13 +204,25 @@ async function runSession(
       result.text,
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), AGENT_MAX_RUN_MS)),
     ]);
+
+    if (deps.turnHooks) {
+      const turnResult = { text: fullResponse, toolCalls };
+      for (const hook of deps.turnHooks) {
+        if (hook.onAfterTurn) await hook.onAfterTurn(turnCtx, turnResult);
+      }
+    }
   } catch (e) {
-    agentOutput.error(`Agent error: ${e instanceof Error ? e.message : e}`);
+    deps.adapterManager.emitStreamEvent(channelKey, { type: "turn-error", error: e });
   } finally {
-    sessionStorage.appendMessages(sessionKey, sessionId, messages.slice(session.messages.length));
+    sessionStorage.appendMessages(sessionKey, sessionId, turnCtx.newMessages);
+
+    if (config.agent.compaction.enabled) {
+      const allMessages = [...turnCtx.history, ...turnCtx.newMessages];
+      const apiKey = await getApiKeyForProfile(profile) || "";
+      scheduleAutoCompaction(sessionKey, sessionId, allMessages, { sessionStorage, model, apiKey, reserveTokens: config.agent.compaction.reserveTokens });
+    }
   }
 }
-
 
 async function scheduleAutoCompaction(
   sessionKey: string,
@@ -237,7 +267,7 @@ async function scheduleAutoCompaction(
       [{ role: "user", content: `[Context Summary ${new Date().toISOString()}]\n${summary.text}` }, ...kept],
     );
   }).catch((e) => {
-    agentOutput.error(`Failed to compact session ${sessionKey}: ${e instanceof Error ? e.message : e}`);
+    console.error(`[Agent] Failed to compact session ${sessionKey}:`, e);
   });
 
   sessionCompactions.set(sessionKey, compact);

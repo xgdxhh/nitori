@@ -43,6 +43,10 @@ export const agentOutput = {
     process.stdout.write(`${DIM}${delta.replace(/\n/g, " ")}${RESET}`);
   },
 
+  assistantDelta(delta: string) {
+    process.stdout.write(`${MAGENTA}${delta.replace(/\n/g, " ")}${RESET}`);
+  },
+
   assistantStarted() {
     process.stdout.write(`\n${MAGENTA}> ${RESET}`);
   },

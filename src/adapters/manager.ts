@@ -1,7 +1,20 @@
-import type { Adapter, InboundMessage } from "../types.ts";
+import { EventEmitter } from "node:events";
+import type { Adapter, AgentStreamEvent, InboundMessage } from "../types.ts";
 
 export class AdapterManager {
+  public readonly events = new EventEmitter();
   private readonly adapters = new Map<string, Adapter>();
+
+  emitStreamEvent(channelKey: string, event: AgentStreamEvent): void {
+    this.events.emit(`stream:${channelKey}`, event);
+    this.events.emit("stream", channelKey, event); // Global listener support
+  }
+
+  subscribeStream(channelKey: string, listener: (event: AgentStreamEvent) => void): () => void {
+    const eventName = `stream:${channelKey}`;
+    this.events.on(eventName, listener);
+    return () => this.events.off(eventName, listener);
+  }
 
   register(adapter: Adapter): void {
     this.adapters.set(adapter.name, adapter);

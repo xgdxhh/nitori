@@ -6,7 +6,7 @@ import type {
   ExtensionHost,
   ExtensionLogValue,
 } from "../types.ts";
-import type { AdapterFactory, ExtensionContext, NitoriExtension, ToolFactory } from "./types.ts";
+import type { AdapterFactory, ExtensionContext, NitoriExtension, ToolFactory, AgentHooks } from "./types.ts";
 
 type DeactivateHandler = () => void | Promise<void>;
 
@@ -25,6 +25,7 @@ interface LoadedExtension {
   messageHandler: AdapterMessageHandler;
   adapters: Adapter[];
   toolFactories: ToolFactory[];
+  hooks: AgentHooks[];
   cleanupHandlers: DeactivateHandler[];
   enabled: boolean;
 }
@@ -117,6 +118,10 @@ export class ExtensionRegistry {
     return [...this.entries.values()].filter((entry) => entry.enabled).flatMap((entry) => entry.toolFactories);
   }
 
+  get activeHooks(): AgentHooks[] {
+    return [...this.entries.values()].filter((entry) => entry.enabled).flatMap((entry) => entry.hooks);
+  }
+
   get names(): string[] {
     return [...this.entries.keys()];
   }
@@ -135,11 +140,13 @@ export class ExtensionRegistry {
 
     const adapterFactories: AdapterFactory[] = [];
     const toolFactories: ToolFactory[] = [];
+    const hooks: AgentHooks[] = [];
     const cleanupHandlers: DeactivateHandler[] = [];
 
     const ctx: ExtensionContext = {
       registerAdapter: (factory) => adapterFactories.push(factory),
       registerTool: (factory) => toolFactories.push(factory),
+      registerHook: (hook) => hooks.push(hook),
       extensionDir: entry.extensionDir,
       workspaceDir: entry.workspaceDir,
       host: this.createHost(entry, cleanupHandlers),
@@ -151,6 +158,7 @@ export class ExtensionRegistry {
       await entry.ext.activate(ctx);
       entry.adapters = adapterFactories.map((factory) => factory(entry.messageHandler));
       entry.toolFactories = toolFactories.map((factory) => createGuardedToolFactory(entry, factory));
+      entry.hooks = hooks;
       entry.cleanupHandlers = cleanupHandlers;
       return [...entry.adapters];
     } catch (error) {
@@ -170,6 +178,7 @@ export class ExtensionRegistry {
 
     entry.adapters = [];
     entry.toolFactories = [];
+    entry.hooks = [];
     entry.cleanupHandlers = [];
 
     await runExtensionDeactivation(entry, cleanupHandlers);
@@ -198,6 +207,7 @@ export class ExtensionRegistry {
 
       entry.adapters = [];
       entry.toolFactories = [];
+      entry.hooks = [];
       entry.cleanupHandlers = [];
 
       await runExtensionDeactivation(entry, cleanupHandlers);
@@ -248,6 +258,7 @@ export async function loadExtensions(options: LoadExtensionsOptions): Promise<Ex
         messageHandler: options.messageHandler,
         adapters: [],
         toolFactories: [],
+        hooks: [],
         cleanupHandlers: [],
         enabled: false,
       });

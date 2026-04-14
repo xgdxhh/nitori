@@ -14,6 +14,8 @@ import { createIngressServer, shouldStartIngressServer, type IngressServer } fro
 import { loadExtensions, type ExtensionRegistry } from "../extension/loader.ts";
 import { McpClientManager } from "../mcp/client.ts";
 import type { AppConfig } from "../config/index.ts";
+import { agentOutput } from "./console.ts";
+import type { AgentStreamEvent } from "../types.ts";
 
 function createExtensionAgentMessage(extensionName: string, request: { channelKey: string; prompt: string; trigger?: TriggerType; metadata?: Record<string, unknown> }): InboundMessage {
   return {
@@ -50,6 +52,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
       adapterManager,
       scheduleHandler,
       toolFactories: extRegistry?.activeToolFactories ?? [],
+      turnHooks: extRegistry?.activeHooks ?? [],
       mcpManager,
     });
   }
@@ -80,6 +83,7 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
         adapterManager,
         scheduleHandler,
         toolFactories: getToolFactories(),
+        turnHooks: extRegistry?.activeHooks ?? [],
         mcpManager,
       });
     },
@@ -104,6 +108,29 @@ export async function runDaemon(config: AppConfig, options: { cliMode: boolean }
   if (shouldStartIngressServer(config)) {
     ingressServer = createIngressServer(config, messageHandler.onInbound);
   }
+
+  adapterManager.events.on("stream", (_channelKey: string, event: AgentStreamEvent) => {
+    switch (event.type) {
+      case "assistant-start":
+        agentOutput.assistantStarted();
+        break;
+      case "text-delta":
+        agentOutput.assistantDelta(event.delta);
+        break;
+      case "thinking":
+        agentOutput.thinkingDelta(event.delta);
+        break;
+      case "tool-call-start":
+        agentOutput.toolCall(event.toolName, event.args as Record<string, unknown>);
+        break;
+      case "tool-call-result":
+        agentOutput.toolResult(event.toolName, 0, event.isError);
+        break;
+      case "turn-finish":
+      case "turn-error":
+        break;
+    }
+  });
 
   await mcpManager.start(config.mcp);
   await adapterManager.start();
