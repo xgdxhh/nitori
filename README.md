@@ -1,0 +1,289 @@
+# Nitori
+
+A personal AI agent you run on your own machine. Chat with it on Telegram,
+Discord, or your terminal. It manages sessions, schedules tasks, searches the
+web, and reads/writes files — all with the tools you need built in.
+
+## Quick Start
+
+```bash
+nitori onboard        # Initialize ~/.nitori workspace
+```
+
+## CLI Commands
+
+| Command                         | Description                                            |
+| ------------------------------- | ------------------------------------------------------ |
+| `nitori onboard`                | Initialize workspace (`~/.nitori`) with default config |
+| `nitori oauth login [provider]` | OAuth login for LLM providers (e.g. `openai-codex`)    |
+| `nitori chat`                   | Run in CLI chat mode instead of Telegram/Discord       |
+
+## Adapters
+
+Telegram, Discord, and CLI adapters are built-in. Extensions can register
+additional adapters.
+
+### Telegram
+
+Requires `settings.json`:
+
+```json
+{
+  "telegramToken": "<bot-token>"
+}
+```
+
+### Discord
+
+```json
+{
+  "discordToken": "<bot-token>"
+}
+```
+
+### CLI
+
+Run `nitori chat` for interactive terminal chat.
+
+## Message Flow
+
+1. Inbound messages are written to `inbox` first
+2. Group chats require mention/reply triggers; DMs use direct signals
+3. Realtime triggers process immediately via `processAndReply`
+4. Passive messages sit in inbox until agent polls with `read_inbox`
+5. Outbound uses `send`, `reply`, or `telegram_react_message`
+
+## Built-in Tools
+
+### File Operations
+
+- `read` - Read file or list directory (offset/limit support)
+- `write` - Write full content to file
+- `edit` - Replace first occurrence of pattern in file
+- `bash` - Execute shell command (120s timeout default)
+
+### Messaging
+
+- `send` - Send message to current session or specified channel
+- `reply` - Reply to specific inbox message ID
+- `telegram_react_message` - React to message with emoji
+- `attach` - Send local file back to conversation
+- `fetch_image` - Fetch image as base64 for LLM
+
+### Inbox & Session
+
+- `read_inbox` - Browse messages with pagination/filtering
+- `handoff` - Archive current session, start fresh (creates checkpoint)
+- `recall` - Search checkpoints via SQLite FTS with recency weighting
+
+### Scheduling
+
+- `cron_job` - Manage schedules: `create`, `list`, `get`, `update`, `cancel`
+
+### Web
+
+- `websearch` - DuckDuckGo HTML search
+- `webfetch` - Fetch URL via Jina Reader as markdown
+
+## LLM Configuration
+
+`settings.json` structure:
+
+```json
+{
+  "agent": {
+    "sessionScope": "channel"
+  },
+  "llm": {
+    "profile": "default",
+    "profiles": {
+      "default": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+        "authMode": "apiKey",
+        "apiKey": "<key>"
+      }
+    }
+  }
+}
+```
+
+`agent.sessionScope` supports:
+
+- `channel`: each channel uses its own session
+- `global`: all channels share one session, and the session key is fixed to
+  `global`
+
+### Supported Providers
+
+`anthropic`, `google`, `openai`, `groq`, `cerebras`, `openrouter`, `mistral`,
+`opencode`, `kimi-coding`, `github-copilot`, and more.
+
+### Auth Modes
+
+- `apiKey` - Direct API key
+- `oauth` - Auto-refreshing OAuth credentials (see OAuth section)
+
+### Google Native Tools
+
+```json
+{
+  "providerOptions": {
+    "google": {
+      "nativeTools": [
+        { "urlContext": {} },
+        { "googleSearch": {} },
+        { "codeExecution": {} }
+      ]
+    }
+  }
+}
+```
+
+Note: Use SDK-style `camelCase` names (`urlContext`), not REST API `snake_case`.
+
+### OAuth
+
+OAuth credentials are stored per-profile. The path is configurable:
+
+```json
+{
+  "llm": {
+    "profile": "codex",
+    "profiles": {
+      "codex": {
+        "provider": "openai-codex",
+        "model": "gpt-5.4",
+        "authMode": "oauth",
+        "oauthCredentialsPath": "auth/codex.json"
+      }
+    }
+  }
+}
+```
+
+Default path is `oauth.json` in workspace root if `oauthCredentialsPath` is
+omitted.
+
+Login command:
+
+```bash
+nitori oauth login openai-codex
+```
+
+## Extensions
+
+Extensions are `.ts`/`.js` files loaded from `~/.nitori/extensions/`.
+
+```json
+{
+  "extensions": ["my-extension"]
+}
+```
+
+Directory structure:
+
+```
+~/.nitori/extensions/my-extension/index.ts
+```
+
+Extension interface:
+
+```typescript
+interface NitoriExtension {
+  name: string;
+  activate(ctx: ExtensionContext): void | Promise<void>;
+  deactivate?(): void | Promise<void>;
+}
+
+interface ExtensionContext {
+  registerAdapter(factory: AdapterFactory): void;
+  registerTool(factory: ToolFactory): void;
+  extensionDir: string;
+  workspaceDir: string;
+}
+```
+
+Runtime control via `/ext`:
+
+- `/ext list` - Show loaded extensions
+- `/ext enable <name>` / `/ext disable <name>` - Toggle extension
+
+## HTTP Ingress
+
+Accept events from external bridge apps:
+
+```json
+{
+  "ingress": {
+    "host": "127.0.0.1",
+    "port": 8787,
+    "token": "replace-me"
+  }
+}
+```
+
+```bash
+curl -X POST http://127.0.0.1:8787/events \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer replace-me' \
+  -d '{
+    "event": {
+      "id": "evt-1",
+      "source": "bluesky",
+      "channelKey": "ext:bluesky:rin",
+      "sender": { "id": "alice", "name": "Alice" },
+      "text": "notification text",
+      "attachments": [],
+      "trigger": "active"
+    }
+  }'
+```
+
+`trigger: "active"` processes in background; `passive` only writes to inbox.
+
+## Storage
+
+SQLite at `~/.nitori/db/nitori.sqlite`:
+
+| Table                  | Purpose                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `inbox`                | Incoming messages with channel_key, sender, trigger, status  |
+| `session_messages`     | Active session messages keyed by `session_key`               |
+| `session_checkpoints`  | Session boundaries for handoff/recall keyed by `session_key` |
+| `session_messages_fts` | FTS5 full-text search index keyed by `session_key`           |
+| `events`               | Scheduled events (one-shot and recurring)                    |
+
+WAL mode, foreign keys enabled, BM25 scoring with recency weighting.
+
+## System Prompt Templates
+
+Files in workspace root shape agent behavior:
+
+- `SOUL.md` - Identity/character
+- `AGENTS.md` - Behavior guidelines
+- `USER.md` - User preferences
+
+## Workspace Layout
+
+Created by `nitori onboard`:
+
+```
+~/.nitori/
+├── db/nitori.sqlite
+├── settings.json
+├── telegram.json      # Telegram allow/block lists
+├── SOUL.md
+├── AGENTS.md
+├── USER.md
+├── .agents/skills/
+├── extensions/
+├── files/
+└── documents/
+```
+
+## Typecheck
+
+```bash
+bun run typecheck
+```

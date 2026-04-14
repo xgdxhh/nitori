@@ -1,0 +1,16 @@
+export type {
+  NitoriExtension,
+  ExtensionContext,
+  ExtensionHost,
+  ExtensionInboxApi,
+  ExtensionAgentApi,
+  ExtensionLifecycleApi,
+  ExtensionLogApi,
+  ExtensionInboxListOptions,
+  ExtensionUnreadChannel,
+  ExtensionAgentEnqueueRequest,
+  ExtensionLogValue,
+  ExtensionMetadata,
+  AdapterFactory,
+  ToolFactory,
+} from "../types.ts";

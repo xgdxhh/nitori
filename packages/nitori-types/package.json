@@ -1,0 +1,15 @@
+{
+  "name": "nitori-types",
+  "version": "0.3.0",
+  "description": "Type definitions for Nitori extensions",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "files": [
+    "index.ts"
+  ],
+  "peerDependencies": {
+    "ai": "^6.0.141"
+  },
+  "license": "ISC"
+}

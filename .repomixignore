@@ -1,0 +1,7 @@
+src/generated
+
+packages
+.oxlintrc.json
+AGENTS.md
+
+templates
