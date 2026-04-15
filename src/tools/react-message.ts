@@ -11,7 +11,7 @@ export function createReactMessageTool(ctx: ToolContext): Tool {
     inputSchema: z.object({
       messageId: z.string().optional().describe("Message ID to react to"),
       emoji: z.string().describe("Emoji to add"),
-      channel: z.string().optional().describe("Optional channel key, e.g. tg:dm:123 or tg:group:-100456"),
+      channel: z.string().optional().describe("Optional channel key, e.g. tg:dm:123, tg:group:-100456, or tg:group:-100456:thread:42"),
     }),
     execute: async ({ messageId: rawMessageId, emoji, channel }) => {
       const messageId = resolveTargetMessageId(ctx, rawMessageId);

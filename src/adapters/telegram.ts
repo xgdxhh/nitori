@@ -5,6 +5,11 @@ import { Message, type ReactionType, Update } from "grammy/types";
 import { extname } from "node:path";
 import { loadTelegramBusinessConfig, type TelegramBusinessConfig } from "../config/telegram.ts";
 
+type TelegramMessage = Message & Update.NonChannel;
+type TelegramReplyMessage = NonNullable<TelegramMessage["reply_to_message"]>;
+type DownloadedTelegramFile = { data: Buffer; mimeType: string };
+type TelegramFileLoader = (fileId: string) => Promise<DownloadedTelegramFile>;
+
 export class TelegramAdapter implements Adapter {
   readonly name = "telegram";
 
@@ -51,36 +56,43 @@ export class TelegramAdapter implements Adapter {
 
   async sendMessage(channelKey: string, text: string, replyToMessageId?: string): Promise<string> {
     const bot = this.requireBot();
-    const chatId = Number(channelKey.split(":").at(-1));
+    const { chatId, threadId } = parseTelegramChannelKey(channelKey);
     const extra: Parameters<typeof bot.api.sendMessage>[2] = {
       link_preview_options: { is_disabled: true },
+      message_thread_id: threadId ? Number(threadId) : undefined,
     };
     if (replyToMessageId) {
       extra.reply_parameters = { message_id: Number(replyToMessageId) };
     }
-    const res = await bot.api.sendMessage(chatId, text, extra);
+    const res = await bot.api.sendMessage(Number(chatId), text, extra);
     return String(res.message_id);
   }
 
   async sendFile(channelKey: string, filePath: string, caption?: string): Promise<string> {
     const bot = this.requireBot();
-    const chatId = Number(channelKey.split(":").at(-1));
+    const { chatId, threadId } = parseTelegramChannelKey(channelKey);
     const inputFile = new InputFile(filePath);
     const res = imageMimeType(filePath)
-      ? await bot.api.sendPhoto(chatId, inputFile, { caption })
-      : await bot.api.sendDocument(chatId, inputFile, { caption });
+      ? await bot.api.sendPhoto(Number(chatId), inputFile, {
+        caption,
+        message_thread_id: threadId ? Number(threadId) : undefined,
+      })
+      : await bot.api.sendDocument(Number(chatId), inputFile, {
+        caption,
+        message_thread_id: threadId ? Number(threadId) : undefined,
+      });
     return String(res.message_id);
   }
 
   async setReaction(channelKey: string, messageId: string, emoji: string): Promise<string> {
     const bot = this.requireBot();
-    const chatId = Number(channelKey.split(":").at(-1));
+    const { chatId } = parseTelegramChannelKey(channelKey);
     const candidate = emoji.trim();
     if (!candidate) return `reaction-rejected:${messageId}`;
 
     try {
       await bot.api.raw.setMessageReaction({
-        chat_id: chatId,
+        chat_id: Number(chatId),
         message_id: Number(messageId),
         reaction: [{ type: "emoji", emoji: candidate } as ReactionType],
         is_big: false,
@@ -96,7 +108,7 @@ export class TelegramAdapter implements Adapter {
   }
 
 
-  private async downloadTelegramFile(fileId: string): Promise<{ data: Buffer; mimeType: string }> {
+  private async downloadTelegramFile(fileId: string): Promise<DownloadedTelegramFile> {
     const bot = this.requireBot();
     const fileMeta = await bot.api.getFile(fileId);
     if (!fileMeta.file_path) throw new Error(`Telegram file path missing for fileId=${fileId}`);
@@ -111,142 +123,18 @@ export class TelegramAdapter implements Adapter {
     if (!msg?.from) return;
     if (String(msg.from.id) === this.botId) return;
 
-    const { chat, from, text, caption, reply_to_message, message_id, date } = msg;
-    const chatId = String(chat.id);
-    const userId = String(from.id);
-    const isPrivate = chat.type === "private";
-
     const config = this.getBusinessConfig();
-    const isBlocked = config.blockedChatIds.includes(chatId) || config.blockedUserIds.includes(userId);
-    const isAllowed =
-      (config.allowedChatIds.length === 0 || config.allowedChatIds.includes(chatId))
-      && (config.allowedUserIds.length === 0 || config.allowedUserIds.includes(userId));
-    const canRespond = isPrivate ? config.respondInPrivate : config.respondInGroups;
-    if (isBlocked || !isAllowed || !canRespond) return;
+    if (!shouldAcceptTelegramMessage(config, msg)) return;
 
-    const rawMessageText = (text || caption || "").trim();
-    const isReplyToBot = reply_to_message?.from ? String(reply_to_message.from.id) === this.botId : false;
-    const isMention = this.botUsername ? rawMessageText.includes(`@${this.botUsername}`) || rawMessageText.includes(this.botId) : false;
-
-    const trigger: InboundMessage["trigger"] = (isPrivate || config.groupTriggerMode === "all_messages")
-      ? "direct"
-      : isReplyToBot ? "reply" : isMention ? "mention" : "passive";
-
-    let command: { name: string; args: string } | undefined;
-    const cmdMatch = rawMessageText.match(/^\/([a-z0-9_]+)(?:@([a-zA-Z0-9_]+))?(?:\s+([\s\S]*))?$/i);
-    if (cmdMatch) {
-      const mentionName = cmdMatch[2];
-      if (!mentionName || (this.botUsername && mentionName.toLowerCase() === this.botUsername.toLowerCase())) {
-        command = { name: cmdMatch[1].toLowerCase(), args: (cmdMatch[3] ?? "").trim() };
-      }
-    }
-
-    let messageText = rawMessageText;
-    if (reply_to_message && reply_to_message.from?.id !== from.id) {
-      const repliedSender = reply_to_message.from ? [reply_to_message.from.first_name, reply_to_message.from.last_name].filter(Boolean).join(" ").trim() : "Unknown";
-      const repliedText = (reply_to_message.text || reply_to_message.caption || "(attachment)").trim();
-      const quoted = repliedText.split("\n").map(line => `> ${line}`).join("\n");
-      messageText = `> [reply to ${repliedSender || "Unknown"}]\n${quoted}\n\n${rawMessageText}`.trim();
-    }
-
-    const inbound: InboundMessage = {
-      id: String(message_id),
-      source: "telegram",
-      channelKey: `tg:${isPrivate ? "dm" : "group"}:${chatId}`,
-      sender: {
-        id: userId,
-        username: from.username,
-        name: [from.first_name, from.last_name].filter(Boolean).join(" "),
-        isBot: from.is_bot,
-      },
-      text: messageText,
-      command,
-      attachments: await this.extractAttachments(msg),
-      replyToMessageId: isReplyToBot ? String(reply_to_message!.message_id) : undefined,
-      raw: { chat, message_id },
-      receivedAt: new Date((date || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
-      trigger,
-    };
+    const inbound = await buildInboundTelegramMessage({
+      msg,
+      botId: this.botId,
+      botUsername: this.botUsername,
+      config,
+      loadFile: (fileId) => this.downloadTelegramFile(fileId),
+    });
 
     this.handler.onInbound(inbound).catch((error) => console.error("Telegram inbound dispatch failed", error));
-  }
-
-  private async extractAttachments(msg: Message & Update.NonChannel): Promise<AttachmentRef[]> {
-    const out: AttachmentRef[] = [];
-    await this.fillAttachments(msg, out);
-
-    // If current message has no images but replies to one, pull from the replied message
-    if (out.length === 0 && msg.reply_to_message) {
-      await this.fillAttachments(msg.reply_to_message as any, out);
-    }
-
-    return out;
-  }
-
-  private async fillAttachments(msg: Message, out: AttachmentRef[]): Promise<void> {
-    if (msg.photo?.length) {
-      const largest = msg.photo[msg.photo.length - 1];
-      const { data, mimeType } = await this.downloadTelegramFile(largest.file_id);
-      out.push({
-        type: "image",
-        path: `telegram://${largest.file_id}`,
-        data: data.toString("base64"),
-        mimeType: mimeType || "image/jpeg",
-        size: largest.file_size,
-      });
-    }
-
-    if (msg.document?.file_id) {
-      const mime = msg.document.mime_type;
-      out.push({
-        type: attachmentTypeFromMime(mime),
-        path: `telegram://${msg.document.file_id}`,
-        mimeType: mime,
-        size: msg.document.file_size,
-        fileName: msg.document.file_name,
-      });
-    }
-
-    if (msg.video?.file_id) {
-      out.push({
-        type: "video",
-        path: `telegram://${msg.video.file_id}`,
-        mimeType: msg.video.mime_type ?? "video/mp4",
-        size: msg.video.file_size,
-        fileName: msg.video.file_name,
-      });
-    }
-
-    if (msg.audio?.file_id) {
-      out.push({
-        type: "audio",
-        path: `telegram://${msg.audio.file_id}`,
-        mimeType: msg.audio.mime_type ?? "audio/mpeg",
-        size: msg.audio.file_size,
-        fileName: msg.audio.file_name,
-      });
-    }
-
-    if (msg.voice?.file_id) {
-      out.push({
-        type: "audio",
-        path: `telegram://${msg.voice.file_id}`,
-        mimeType: msg.voice.mime_type ?? "audio/ogg",
-        size: msg.voice.file_size,
-      });
-    }
-
-    if (msg.animation?.file_id) {
-      const { data, mimeType } = await this.downloadTelegramFile(msg.animation.file_id);
-      out.push({
-        type: "image",
-        path: `telegram://${msg.animation.file_id}`,
-        data: data.toString("base64"),
-        mimeType: mimeType || "image/gif",
-        size: msg.animation.file_size,
-        fileName: msg.animation.file_name,
-      });
-    }
   }
 
   private requireBot(): Bot {
@@ -299,4 +187,233 @@ const IMAGE_MIME: Record<string, string> = {
 
 function imageMimeType(path: string): string | undefined {
   return IMAGE_MIME[extname(path).toLowerCase()];
+}
+
+function shouldAcceptTelegramMessage(config: TelegramBusinessConfig, msg: TelegramMessage): boolean {
+  const chatId = String(msg.chat.id);
+  const userId = String(msg.from.id);
+  const isPrivate = msg.chat.type === "private";
+  const isBlocked = config.blockedChatIds.includes(chatId) || config.blockedUserIds.includes(userId);
+  const isAllowed =
+    (config.allowedChatIds.length === 0 || config.allowedChatIds.includes(chatId))
+    && (config.allowedUserIds.length === 0 || config.allowedUserIds.includes(userId));
+  const canRespond = isPrivate ? config.respondInPrivate : config.respondInGroups;
+  return !isBlocked && isAllowed && canRespond;
+}
+
+async function buildInboundTelegramMessage(input: {
+  msg: TelegramMessage;
+  botId: string;
+  botUsername: string;
+  config: TelegramBusinessConfig;
+  loadFile: TelegramFileLoader;
+}): Promise<InboundMessage> {
+  const { msg, botId, botUsername, config, loadFile } = input;
+  const rawMessageText = getTelegramMessageText(msg);
+  const isPrivate = msg.chat.type === "private";
+  const isReplyToBot = isTelegramReplyToBot(msg, botId);
+  const trigger = resolveTelegramTrigger({
+    config,
+    isPrivate,
+    isReplyToBot,
+    isMention: isTelegramMention(rawMessageText, botId, botUsername),
+  });
+
+  return {
+    id: String(msg.message_id),
+    source: "telegram",
+    channelKey: buildTelegramChannelKey({
+      kind: isPrivate ? "dm" : "group",
+      chatId: String(msg.chat.id),
+      threadId: getTelegramThreadId(msg),
+    }),
+    sender: {
+      id: String(msg.from.id),
+      username: msg.from.username,
+      name: [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" "),
+      isBot: msg.from.is_bot,
+    },
+    text: buildTelegramInboundText(msg, rawMessageText),
+    command: parseTelegramCommand(rawMessageText, botUsername),
+    attachments: await extractTelegramAttachments(msg, loadFile),
+    replyToMessageId: isReplyToBot && msg.reply_to_message ? String(msg.reply_to_message.message_id) : undefined,
+    raw: { chat: msg.chat, message_id: msg.message_id },
+    receivedAt: new Date((msg.date || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+    trigger,
+  };
+}
+
+function getTelegramMessageText(msg: TelegramMessage | TelegramReplyMessage): string {
+  return (msg.text || msg.caption || "").trim();
+}
+
+function getTelegramThreadId(msg: TelegramMessage): string | undefined {
+  return msg.is_topic_message && msg.message_thread_id ? String(msg.message_thread_id) : undefined;
+}
+
+function isTelegramReplyToBot(msg: TelegramMessage, botId: string): boolean {
+  return msg.reply_to_message?.from ? String(msg.reply_to_message.from.id) === botId : false;
+}
+
+function isTelegramMention(text: string, botId: string, botUsername: string): boolean {
+  return botUsername
+    ? text.includes(`@${botUsername}`) || text.includes(botId)
+    : false;
+}
+
+function resolveTelegramTrigger(input: {
+  config: TelegramBusinessConfig;
+  isPrivate: boolean;
+  isReplyToBot: boolean;
+  isMention: boolean;
+}): InboundMessage["trigger"] {
+  if (input.isPrivate || input.config.groupTriggerMode === "all_messages") return "direct";
+  if (input.isReplyToBot) return "reply";
+  if (input.isMention) return "mention";
+  return "passive";
+}
+
+function parseTelegramCommand(text: string, botUsername: string): InboundMessage["command"] {
+  const cmdMatch = text.match(/^\/([a-z0-9_]+)(?:@([a-zA-Z0-9_]+))?(?:\s+([\s\S]*))?$/i);
+  if (!cmdMatch) return undefined;
+
+  const mentionName = cmdMatch[2];
+  if (mentionName && (!botUsername || mentionName.toLowerCase() !== botUsername.toLowerCase())) {
+    return undefined;
+  }
+
+  return {
+    name: cmdMatch[1].toLowerCase(),
+    args: (cmdMatch[3] ?? "").trim(),
+  };
+}
+
+function buildTelegramInboundText(msg: TelegramMessage, rawMessageText: string): string {
+  const reply = msg.reply_to_message;
+  if (!reply || reply.from?.id === msg.from.id) return rawMessageText;
+  return formatTelegramReplyQuote(reply, rawMessageText);
+}
+
+function formatTelegramReplyQuote(reply: TelegramReplyMessage, rawMessageText: string): string {
+  const repliedSender = reply.from
+    ? [reply.from.first_name, reply.from.last_name].filter(Boolean).join(" ").trim()
+    : "Unknown";
+  const repliedText = getTelegramMessageText(reply) || "(attachment)";
+  const quoted = repliedText.split("\n").map((line) => `> ${line}`).join("\n");
+  return `> [reply to ${repliedSender || "Unknown"}]\n${quoted}\n\n${rawMessageText}`.trim();
+}
+
+async function extractTelegramAttachments(msg: TelegramMessage, loadFile: TelegramFileLoader): Promise<AttachmentRef[]> {
+  const attachments = await collectTelegramAttachments(msg, loadFile);
+  if (attachments.length > 0 || !msg.reply_to_message) return attachments;
+  return collectTelegramAttachments(msg.reply_to_message, loadFile);
+}
+
+async function collectTelegramAttachments(
+  msg: TelegramMessage | TelegramReplyMessage,
+  loadFile: TelegramFileLoader,
+): Promise<AttachmentRef[]> {
+  const attachments: AttachmentRef[] = [];
+
+  if (msg.photo?.length) {
+    const largest = msg.photo[msg.photo.length - 1];
+    const { data, mimeType } = await loadFile(largest.file_id);
+    attachments.push({
+      type: "image",
+      path: `telegram://${largest.file_id}`,
+      data: data.toString("base64"),
+      mimeType: mimeType || "image/jpeg",
+      size: largest.file_size,
+    });
+  }
+
+  if (msg.document?.file_id) {
+    const mime = msg.document.mime_type;
+    attachments.push({
+      type: attachmentTypeFromMime(mime),
+      path: `telegram://${msg.document.file_id}`,
+      mimeType: mime,
+      size: msg.document.file_size,
+      fileName: msg.document.file_name,
+    });
+  }
+
+  if (msg.video?.file_id) {
+    attachments.push({
+      type: "video",
+      path: `telegram://${msg.video.file_id}`,
+      mimeType: msg.video.mime_type ?? "video/mp4",
+      size: msg.video.file_size,
+      fileName: msg.video.file_name,
+    });
+  }
+
+  if (msg.audio?.file_id) {
+    attachments.push({
+      type: "audio",
+      path: `telegram://${msg.audio.file_id}`,
+      mimeType: msg.audio.mime_type ?? "audio/mpeg",
+      size: msg.audio.file_size,
+      fileName: msg.audio.file_name,
+    });
+  }
+
+  if (msg.voice?.file_id) {
+    attachments.push({
+      type: "audio",
+      path: `telegram://${msg.voice.file_id}`,
+      mimeType: msg.voice.mime_type ?? "audio/ogg",
+      size: msg.voice.file_size,
+    });
+  }
+
+  if (msg.animation?.file_id) {
+    const { data, mimeType } = await loadFile(msg.animation.file_id);
+    attachments.push({
+      type: "image",
+      path: `telegram://${msg.animation.file_id}`,
+      data: data.toString("base64"),
+      mimeType: mimeType || "image/gif",
+      size: msg.animation.file_size,
+      fileName: msg.animation.file_name,
+    });
+  }
+
+  return attachments;
+}
+
+
+const TELEGRAM_CHANNEL_PREFIX = "tg";
+
+type TelegramChannelKind = "dm" | "group";
+
+export interface TelegramChannelParts {
+  kind: TelegramChannelKind;
+  chatId: string;
+  threadId?: string;
+}
+
+export function buildTelegramChannelKey(parts: TelegramChannelParts): string {
+  const base = `${TELEGRAM_CHANNEL_PREFIX}:${parts.kind}:${parts.chatId}`;
+  return parts.threadId ? `${base}:thread:${parts.threadId}` : base;
+}
+
+export function parseTelegramChannelKey(channelKey: string): TelegramChannelParts {
+  const [prefix, kind, chatId, threadLabel, threadId, extra] = channelKey.split(":");
+  if (prefix !== TELEGRAM_CHANNEL_PREFIX) {
+    throw new Error(`Invalid Telegram channel key prefix: ${channelKey}`);
+  }
+  if (kind !== "dm" && kind !== "group") {
+    throw new Error(`Invalid Telegram channel kind: ${channelKey}`);
+  }
+  if (!chatId) {
+    throw new Error(`Telegram chat id missing in channel key: ${channelKey}`);
+  }
+  if (!threadLabel && !threadId && !extra) {
+    return { kind, chatId };
+  }
+  if (threadLabel !== "thread" || !threadId || extra) {
+    throw new Error(`Invalid Telegram thread segment in channel key: ${channelKey}`);
+  }
+  return { kind, chatId, threadId };
 }

@@ -1,4 +1,5 @@
 import { object, optional, parse, picklist, string, array, boolean, number, record, unknown, type InferOutput } from "valibot";
+import type { ServerWebSocket } from "bun";
 import type { InboundMessage } from "../types.ts";
 import type { AppConfig } from "../config/index.ts";
 import type { WebAdapterInstance } from "../adapters/web.ts";
@@ -37,6 +38,12 @@ const requestSchema = object({
 });
 
 type IngressEventPayload = InferOutput<typeof eventSchema>;
+type IngressSocket = ServerWebSocket<{ channelKey?: string }>;
+type IngressSession = {
+  authenticated: boolean;
+  channelKey?: string;
+  timeout: ReturnType<typeof setTimeout>;
+};
 
 export interface IngressServer {
   stop(): Promise<void>;
@@ -51,7 +58,7 @@ export function createIngressServer(
   onInbound: (message: InboundMessage) => Promise<void>,
   webAdapter?: WebAdapterInstance,
 ): IngressServer {
-  const wsSessions = new Map<any, { authenticated: boolean; channelKey?: string; timeout: any }>();
+  const wsSessions = new Map<IngressSocket, IngressSession>();
 
   const server = Bun.serve<{ channelKey?: string }>({
     hostname: config.ingress.host,
@@ -188,5 +195,4 @@ function mapTrigger(trigger: IngressEventPayload["trigger"]): InboundMessage["tr
   if (trigger === "mention" || trigger === "reply" || trigger === "direct") return trigger;
   return "passive";
 }
-
 

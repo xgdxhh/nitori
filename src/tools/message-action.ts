@@ -10,7 +10,7 @@ export function createSendTool(ctx: ToolContext): Tool {
     description: "Send a new message to the current session.",
     inputSchema: z.object({
       content: z.string().describe("Message content"),
-      channel: z.string().optional().describe("Optional channel key, e.g. tg:dm:123 or tg:group:456"),
+      channel: z.string().optional().describe("Optional channel key, e.g. tg:dm:123, tg:group:456, or tg:group:456:thread:42"),
     }),
     execute: async ({ content, channel }) => {
       if (!content.trim()) {
@@ -30,7 +30,7 @@ export function createReplyTool(ctx: ToolContext): Tool {
     inputSchema: z.object({
       message_id: z.string().describe("Inbox external_id (platform message id)"),
       content: z.string().describe("Reply content"),
-      channel: z.string().optional().describe("Optional channel key, e.g. tg:dm:123 or tg:group:456"),
+      channel: z.string().optional().describe("Optional channel key, e.g. tg:dm:123, tg:group:456, or tg:group:456:thread:42"),
     }),
     execute: async ({ message_id, content, channel }) => {
       if (!content.trim()) {

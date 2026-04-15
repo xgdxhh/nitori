@@ -1,5 +1,5 @@
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StdioClientTransport, type StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "ai";
 import { createWriteStream, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -89,7 +89,7 @@ async function createClient(name: string, config: McpServerConfig, logDir: strin
     const timestamp = new Date().toISOString();
     logStream.write(`\n--- Starting ${name} at ${timestamp} ---\n`);
 
-    const transport = new StdioClientTransport({
+    const transportOptions: StdioServerParameters = {
       command: config.command!,
       args: config.args,
       env: {
@@ -97,10 +97,10 @@ async function createClient(name: string, config: McpServerConfig, logDir: strin
         ...config.env,
       },
       stderr: "pipe",
-    } as any);
+    };
+    const transport = new StdioClientTransport(transportOptions);
 
-    // Redirect stderr to file
-    const stderr = (transport as any).stderr;
+    const stderr = transport.stderr;
     if (stderr) {
       stderr.pipe(logStream);
     }
