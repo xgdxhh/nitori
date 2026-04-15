@@ -14,8 +14,6 @@ workspace: ~/.nitori
 
 KISS, DRY - 最简可行方案
 
-写代码时遵循 ai-coding-discipline 规则
-
 架构与设计
 
 从第一性原理解构问题 - 先明确什么是必须的,再决定怎么做

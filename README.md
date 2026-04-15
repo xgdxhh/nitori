@@ -271,7 +271,6 @@ Files in workspace root shape agent behavior:
 
 - `SOUL.md` - Identity/character
 - `AGENTS.md` - Behavior guidelines
-- `USER.md` - User preferences
 
 ## Workspace Layout
 
@@ -283,7 +282,6 @@ Created by `nitori onboard`:
 ├── telegram.json      # Telegram allow/block lists
 ├── SOUL.md
 ├── AGENTS.md
-├── USER.md
 ├── .agents/skills/
 ├── extensions/
 ├── files/

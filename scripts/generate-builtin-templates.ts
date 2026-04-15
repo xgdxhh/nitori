@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-const templateNames = ["AGENTS.md", "SOUL.md", "USER.md"] as const;
+const templateNames = ["AGENTS.md", "SOUL.md"] as const;
 const extraNames = ["README.md", "EXTENSIONS.md"] as const;
 
 const repoRoot = join(import.meta.dir, "..");

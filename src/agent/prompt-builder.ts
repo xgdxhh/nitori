@@ -26,14 +26,11 @@ function readIfExistsCached(path: string): string {
 export function buildSystemPrompt(workspaceDir: string, config: AppConfig): string {
   const agentsDoc = readIfExistsCached(join(workspaceDir, "AGENTS.md"));
   const soulDoc = readIfExistsCached(join(workspaceDir, "SOUL.md"));
-  const userDoc = readIfExistsCached(join(workspaceDir, "USER.md"));
   const skills = loadSkillsSummary(workspaceDir, config.agent.skills.disabled);
 
   return `${soulDoc || "SOUL.md: (missing)"}
   
 ${agentsDoc || "AGENTS.md: (missing)"}
-
-${userDoc || "USER.md: (missing)"}
 
 Skills:
 ${skills || "(none)"}
