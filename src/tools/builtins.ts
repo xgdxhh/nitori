@@ -18,6 +18,8 @@ export function createBuiltInCodingTools(ctx: BuiltInToolContext): Tool[] {
     createBashTool(ctx),
     createEditTool(ctx),
     createWriteTool(ctx),
+    createGrepTool(ctx),
+    createGlobTool(ctx),
   ];
 }
 
@@ -142,4 +144,96 @@ async function runBash(
       resolvePromise({ output, exitCode: code, timedOut });
     });
   });
+}
+function createGrepTool(ctx: BuiltInToolContext): Tool {
+  return tool({
+    title: "grep",
+    description: "Search for a pattern in files using ripgrep (rg) or grep.",
+    inputSchema: z.object({
+      pattern: z.string().describe("The pattern to search for (regex supported)"),
+      path: z.string().optional().describe("Path to search in (default is workspace root)").default("."),
+      caseInsensitive: z.boolean().optional().describe("Whether to perform case-insensitive search").default(false),
+      limit: z.number().optional().describe("Max number of matches to return").default(200),
+    }),
+    execute: async ({ pattern, path = ".", caseInsensitive = false, limit = 200 }) => {
+      // Try rg first
+      const rgArgs = ["-n", "--column", "--no-heading", "--color", "never"];
+      if (caseInsensitive) rgArgs.push("-i");
+      rgArgs.push("-e", pattern, path);
+
+      const result = await runBash(ctx.workspaceDir, `rg ${rgArgs.map((a) => JSON.stringify(a)).join(" ")}`, DEFAULT_BASH_TIMEOUT);
+
+      // Exit code 0 means matches found, 1 means no matches found, 127/missing means command not found
+      if (result.exitCode === 0) {
+        return truncateMatches(result.output, limit);
+      }
+      if (result.exitCode === 1) {
+        return "No matches found.";
+      }
+
+      // Fallback to grep
+      const grepArgs = ["-rnE"];
+      if (caseInsensitive) grepArgs[0] += "i";
+      grepArgs.push(pattern, path);
+      const grepResult = await runBash(
+        ctx.workspaceDir,
+        `grep ${grepArgs.map((a) => JSON.stringify(a)).join(" ")}`,
+        DEFAULT_BASH_TIMEOUT,
+      );
+
+      if (grepResult.exitCode === 0) {
+        return truncateMatches(grepResult.output, limit);
+      }
+      if (grepResult.exitCode === 1) {
+        return "No matches found.";
+      }
+
+      return grepResult.output || "No matches found or grep failed.";
+    },
+  });
+}
+
+function createGlobTool(ctx: BuiltInToolContext): Tool {
+  return tool({
+    title: "glob",
+    description: "List files matching a glob pattern using ripgrep (rg) or bash glob.",
+    inputSchema: z.object({
+      pattern: z.string().describe("The glob pattern to match (e.g. **/*.ts, src/*.js)"),
+      limit: z.number().optional().describe("Max number of files to return").default(200),
+    }),
+    execute: async ({ pattern, limit = 200 }) => {
+      // Use rg --files -g for fast globbing
+      const result = await runBash(
+        ctx.workspaceDir,
+        `rg --files -g ${JSON.stringify(pattern)}`,
+        DEFAULT_BASH_TIMEOUT,
+      );
+
+      if (result.exitCode === 0) {
+        return truncateMatches(result.output, limit);
+      }
+      if (result.exitCode === 1 && !result.output.toLowerCase().includes("not found")) {
+        return "No matches found.";
+      }
+
+      // Fallback to bash glob
+      const bashGlob = `bash -O globstar -c "ls -d ${pattern}"`;
+      const bashResult = await runBash(ctx.workspaceDir, bashGlob, DEFAULT_BASH_TIMEOUT);
+
+      if (bashResult.exitCode === 0) {
+        return truncateMatches(bashResult.output, limit);
+      }
+      return "No matches found.";
+    },
+  });
+}
+
+function truncateMatches(output: string, limit: number): string {
+  const lines = output.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length <= limit) return output;
+
+  return (
+    lines.slice(0, limit).join("\n") +
+    `\n\n... and ${lines.length - limit} more matches (truncated to ${limit} lines to save tokens).`
+  );
 }
