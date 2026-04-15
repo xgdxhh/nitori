@@ -1,11 +1,8 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Message } from "../types.ts";
 
-export interface SessionMessage {
-  role: string;
-  content: unknown;
-  timestamp?: number;
-}
+export type SessionMessage = Message;
 
 export interface SessionState {
   sessionId: string;

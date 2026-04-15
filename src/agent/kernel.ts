@@ -3,7 +3,7 @@ import type { AppConfig } from "../config/index.ts";
 import { generateSessionId, type SessionStorage } from "../storage/sessions.ts";
 import { createToolset } from "../tools/index.ts";
 import type { AdapterManager } from "../adapters/manager.ts";
-import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext, AgentHooks, TurnContext } from "../types.ts";
+import type { CronJobRequest, CronJobResult, InboundMessage, ToolContext, AgentHooks, TurnContext, Message } from "../types.ts";
 import type { ToolFactory } from "../extension/types.ts";
 import type { McpManager } from "../mcp/client.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
@@ -168,17 +168,17 @@ async function runSession(
       },
       onFinish: (event) => {
         if (event.response?.messages) {
-          const generatedMessages = [...event.response.messages];
+          const generatedMessages = [...event.response.messages] as Message[];
           if (generatedMessages.length > 0 && event.usage) {
-             const lastMsg = generatedMessages[generatedMessages.length - 1];
-             if (lastMsg.role === "assistant") {
-                (lastMsg as any).usage = event.usage;
-             }
+            const lastMsg = generatedMessages[generatedMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              lastMsg.usage = event.usage;
+            }
           }
-          turnCtx.newMessages.push(...(generatedMessages as never[]));
+          turnCtx.newMessages.push(...generatedMessages);
         } else {
           const text = event.finishReason === "error" ? fullResponse : event.text;
-          if (text) turnCtx.newMessages.push({ role: "assistant", content: text, usage: event.usage } as never);
+          if (text) turnCtx.newMessages.push({ role: "assistant", content: text, usage: event.usage });
         }
 
         deps.adapterManager.emitStreamEvent(channelKey, {
@@ -227,14 +227,14 @@ async function runSession(
 async function scheduleAutoCompaction(
   sessionKey: string,
   sessionId: string,
-  initialMessages: Array<{ role: string; content: unknown }>,
+  initialMessages: Message[],
   opts: { sessionStorage: SessionStorage; model: LanguageModel; apiKey: string; reserveTokens: number },
 ): Promise<void> {
   const assistantMsgs = initialMessages.filter(m => m.role === "assistant");
   const lastMsg = assistantMsgs.at(-1);
   if (!lastMsg) return;
 
-  const usage = (lastMsg as { usage?: { totalTokens?: number } }).usage;
+  const usage = lastMsg.usage;
   if (!usage || (usage.totalTokens || 0) < 128000 - opts.reserveTokens) return;
 
   let userCount = 0, splitIndex = 0;

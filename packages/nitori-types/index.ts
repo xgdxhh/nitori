@@ -183,19 +183,36 @@ export type AgentStreamEvent =
   | { type: "turn-finish"; text: string; finishReason: string }
   | { type: "turn-error"; error: unknown };
 
+export interface Message {
+  role: "system" | "user" | "assistant" | "tool" | (string & {});
+  content: unknown;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+  timestamp?: number;
+}
+
 export interface TurnContext {
   channelKey: string;
   sessionKey: string;
   inboundMessages: InboundMessage[];
-  history: Array<{ role: string; content: unknown }>;
-  newMessages: Array<{ role: string; content: unknown }>;
-  llmMessages: Array<{ role: string; content: unknown }>;
+  history: Message[];
+  newMessages: Message[];
+  llmMessages: Message[];
   tools: Record<string, Tool>;
   state: Record<string, unknown>;
 }
 
-export interface AgentHooks {
-  onBeforeTurn?: (ctx: TurnContext) => Promise<void> | void;
-  onAfterTurn?: (ctx: TurnContext, result: { text: string; toolCalls: any[] }) => Promise<void> | void;
+export interface AgentToolCallResult {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  result: unknown;
 }
 
+export interface AgentHooks {
+  onBeforeTurn?: (ctx: TurnContext) => Promise<void> | void;
+  onAfterTurn?: (ctx: TurnContext, result: { text: string; toolCalls: AgentToolCallResult[] }) => Promise<void> | void;
+}
