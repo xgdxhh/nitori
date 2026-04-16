@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { saveActiveProfile as save } from "../config/index.ts";
 import type { AppConfig } from "../config/index.ts";
 import type { InboundMessage } from "../types.ts";
@@ -26,7 +27,7 @@ const handlers: Record<string, (ctx: ControlCommandContext, args: string) => Pro
   },
   handoff: async ({ message, api, config, sessionStorage }) => {
     if (!sessionStorage) {
-      sessionStorage = createSessionStorage(config.workspaceDir);
+      sessionStorage = createSessionStorage(join(config.workspaceDir, "chats"));
     }
     const sessionKey = resolveSessionKey(config, message.channelKey);
     const newSessionId = generateSessionId();

@@ -6,6 +6,7 @@ import { createAttachTool } from "./attach.ts";
 import { createCronJobTool } from "./cron.ts";
 import { createReplyTool, createSendTool } from "./message-action.ts";
 import { createReactMessageTool } from "./react-message.ts";
+import { createListSessionsTool, createReadSessionTool, createRecallTool } from "./sessions.ts";
 import { createWebFetchTool, createWebSearchTool } from "./web.ts";
 
 export function createToolset(ctx: ToolContext, extraFactories: ToolFactory[] = []): Tool[] {
@@ -20,6 +21,9 @@ export function createToolset(ctx: ToolContext, extraFactories: ToolFactory[] = 
     createSendTool(ctx),
     createReplyTool(ctx),
     createReactMessageTool(ctx),
+    createListSessionsTool(ctx),
+    createRecallTool(ctx),
+    createReadSessionTool(ctx),
     ...extraFactories.map(f => f(ctx)),
   ];
 }
