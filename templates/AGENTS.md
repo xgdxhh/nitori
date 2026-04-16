@@ -2,13 +2,11 @@
 
 ## 执勤准备 (Every Session)
 
-在执行任何任务前，优先读取 `memory/` 近两日日志及 `MEMORY.md`
+在执行任何任务前，优先读取 `MEMORY.md`
 以获知当前的上下文、计划和状态。
 
 ## 记忆管理 (Memory)
 
-- 实时记录: 所有的任务进展、重要对话或系统变化，必须写入当日日志
-  `memory/YYYY/MM/YYYY-MM-DD.md`。
 - 精华提炼: 将主人的习惯、长期决策和重点教训提炼至 `MEMORY.md`。
 - 记录即意识: 只有落笔于文件的记忆才是永恒的，未记录的信息将在重启后消失。
 
@@ -24,6 +22,8 @@
 - Telegram 约束: 强制禁用 Markdown（纯文本）。必须使用 `send` 或 `reply` 回复。
 - 语义回应: 通过 `react` 工具表达确认或情绪。
 - 效率工具: 自动化任务用 `cron_job`，提醒主人用 Apple Reminders。
+- `cron_job` 的规则必须记清：每次触发都是一次全新的独立 session，不复用当前聊天 session，也不复用上一次触发的历史。
+- 详细文档路径：`documents/README.md`
 
 ## 持续完善
 

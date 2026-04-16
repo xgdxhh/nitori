@@ -6,7 +6,7 @@ import type { CronJobRequest, ToolContext } from "../types.ts";
 export function createCronJobTool(ctx: ToolContext): Tool {
   return tool({
     title: "cron",
-    description: "Manage internal schedules for the current channel. Use create, list, get, update, or cancel. Not OS crontab.",
+    description: "Manage internal schedules for the current channel. Each schedule trigger runs in a fresh isolated session instead of reusing the chat session. Use create, list, get, update, or cancel. Not OS crontab.",
     inputSchema: z.object({
       op: z.enum(["create", "list", "get", "update", "cancel"]).describe("Operation to perform"),
       id: z.string().optional().describe("Schedule id for get, update, or cancel"),

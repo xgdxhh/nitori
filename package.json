@@ -1,7 +1,7 @@
 {
   "name": "nitori",
   "version": "0.1.0",
-  "description": "Inbox-first Nitori runtime",
+  "description": "Nitori agent",
   "type": "module",
   "main": "dist/main.mjs",
   "bin": {
@@ -10,7 +10,9 @@
   "files": [
     "dist"
   ],
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "generate:templates": "bun run scripts/generate-builtin-templates.ts",
     "dev": "bun run src/main.ts",

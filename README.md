@@ -78,6 +78,10 @@ Run `nitori chat` for interactive terminal chat.
 ### Scheduling
 
 - `cron_job` - Manage schedules: `create`, `list`, `get`, `update`, `cancel`
+  - For automation the agent should execute itself, use `cron_job`
+  - For reminders to the user, use Apple Reminders instead
+  - Each schedule trigger runs in a fresh isolated session
+  - Scheduled runs do not reuse the current chat session or the previous run's history
 
 - `webfetch` - Fetch URL via Jina Reader as markdown
 

@@ -9,7 +9,7 @@ import type { McpManager } from "../mcp/client.ts";
 import { buildSystemPrompt } from "./prompt-builder.ts";
 import { getApiKeyForProfile, getModel } from "../llm/profile.ts";
 import { loadImagesFromAttachments, normalizeInboxPrompt } from "./utils.ts";
-import { resolveSessionKey } from "../session.ts";
+import { resolveInboundSessionKey } from "../session.ts";
 import { createSubagentTool } from "../tools/subagent.ts";
 import type { LanguageModel } from "ai";
 
@@ -32,7 +32,8 @@ export async function processChannel(
     mcpManager: McpManager;
   },
 ): Promise<void> {
-  const sessionKey = resolveSessionKey(deps.config, channelKey);
+  const latest = inMessages.at(-1)!;
+  const sessionKey = resolveInboundSessionKey(deps.config, latest);
   const sessionStorage = deps.sessionStorage;
   const sessionId = getOrCreateSession(sessionStorage, sessionKey);
 
@@ -68,8 +69,8 @@ async function runSession(
   const sessionStorage = deps.sessionStorage;
   const profile = config.llm.profiles[config.llm.activeName];
   const model = getModel(profile);
-  const sessionKey = resolveSessionKey(config, channelKey);
   const latest = inMessages.at(-1)!;
+  const sessionKey = resolveInboundSessionKey(config, latest);
 
   const session = sessionStorage.loadSession(sessionKey, sessionId);
   
