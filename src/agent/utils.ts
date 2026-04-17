@@ -64,7 +64,6 @@ export function normalizeInboxPrompt(
   messages: InboundMessage[],
   hideSourceInfo = false
 ): string {
-  const now = new Date().toLocaleString("sv-SE", { timeZoneName: "short" });
   const parts = messages.map(m => normalizeUserPrompt(m, hideSourceInfo));
-  return parts.join("\n\n---\n\n") + `\n\ncurrent time: ${now}`;
+  return parts.join("\n\n---\n\n");
 }

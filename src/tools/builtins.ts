@@ -20,6 +20,7 @@ export function createBuiltInCodingTools(ctx: BuiltInToolContext): Tool[] {
     createWriteTool(ctx),
     createGrepTool(ctx),
     createGlobTool(ctx),
+    createSystemInfoTool(),
   ];
 }
 
@@ -224,6 +225,25 @@ function createGlobTool(ctx: BuiltInToolContext): Tool {
         return truncateMatches(bashResult.output, limit);
       }
       return "No matches found.";
+    },
+  });
+}
+
+function createSystemInfoTool(): Tool {
+  return tool({
+    title: "get_system_info",
+    description: "Get current system time and environment information (uname).",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const now = new Date().toLocaleString("sv-SE", { timeZoneName: "short" });
+      let uname = "unknown";
+      try {
+        const { execSync } = await import("node:child_process");
+        uname = execSync("uname -a", { encoding: "utf-8" }).trim();
+      } catch (e) {
+        uname = `Error getting uname: ${e}`;
+      }
+      return `Current Time: ${now}\nSystem Info: ${uname}`;
     },
   });
 }
