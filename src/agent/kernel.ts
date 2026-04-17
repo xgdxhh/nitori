@@ -38,10 +38,10 @@ export async function processChannel(
   const sessionId = getOrCreateSession(sessionStorage, sessionKey);
 
   const prev = sessionQueues.get(sessionKey);
-  const run = (prev ?? Promise.resolve()).catch(() => {}).then(() => runSession(channelKey, inMessages, deps, sessionId));
+  const run = (prev ?? Promise.resolve()).catch(() => { }).then(() => runSession(channelKey, inMessages, deps, sessionId));
 
   sessionQueues.set(sessionKey, run);
-  run.catch(() => {}).finally(() => {
+  run.catch(() => { }).finally(() => {
     if (sessionQueues.get(sessionKey) === run) sessionQueues.delete(sessionKey);
   });
 }
@@ -73,7 +73,7 @@ async function runSession(
   const sessionKey = resolveInboundSessionKey(latest);
 
   const session = sessionStorage.loadSession(sessionKey, sessionId);
-  
+
   const images = inMessages.flatMap(m => loadImagesFromAttachments(m.attachments));
   const userPrompt = normalizeInboxPrompt(inMessages, config.agent.hideSourceInfo);
   const userContent = images.length > 0
@@ -129,7 +129,7 @@ async function runSession(
       system: finalSystemPrompt,
       messages: turnCtx.llmMessages as never,
       tools: turnCtx.tools,
-      stopWhen: stepCountIs(20),
+      stopWhen: stepCountIs(50),
       onChunk: ({ chunk }) => {
         if (chunk.type === "text-delta") {
           if (isFirstDelta) {
@@ -251,7 +251,7 @@ async function scheduleAutoCompaction(
   if (toSummarize.length === 0) return;
 
   const prev = sessionCompactions.get(sessionKey);
-  const compact = (prev ?? Promise.resolve()).catch(() => {}).then(async () => {
+  const compact = (prev ?? Promise.resolve()).catch(() => { }).then(async () => {
     const summary = await Promise.race([
       generateText({
         model: opts.model,
