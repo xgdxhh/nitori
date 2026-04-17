@@ -33,7 +33,7 @@ export async function processChannel(
   },
 ): Promise<void> {
   const latest = inMessages.at(-1)!;
-  const sessionKey = resolveInboundSessionKey(deps.config, latest);
+  const sessionKey = resolveInboundSessionKey(latest);
   const sessionStorage = deps.sessionStorage;
   const sessionId = getOrCreateSession(sessionStorage, sessionKey);
 
@@ -67,10 +67,10 @@ async function runSession(
   const config = deps.config;
   const adapterManager = deps.adapterManager;
   const sessionStorage = deps.sessionStorage;
-  const profile = config.llm.profiles[config.llm.activeName];
+  const profile = config.llm.profiles[config.llm.activeProfile];
   const model = getModel(profile);
   const latest = inMessages.at(-1)!;
-  const sessionKey = resolveInboundSessionKey(config, latest);
+  const sessionKey = resolveInboundSessionKey(latest);
 
   const session = sessionStorage.loadSession(sessionKey, sessionId);
   

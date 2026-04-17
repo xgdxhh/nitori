@@ -29,7 +29,7 @@ const handlers: Record<string, (ctx: ControlCommandContext, args: string) => Pro
     if (!sessionStorage) {
       sessionStorage = createSessionStorage(join(config.workspaceDir, "chats"));
     }
-    const sessionKey = resolveSessionKey(config, message.channelKey);
+    const sessionKey = resolveSessionKey(message.channelKey);
     const newSessionId = generateSessionId();
     sessionStorage.createSession(sessionKey, newSessionId);
     await api.replyMessage(message.id, `Started a new session: ${newSessionId.slice(0, 8)}...`);
@@ -49,8 +49,8 @@ async function handleProfileCommand({ message, config, api }: ControlCommandCont
   const requested = args.trim();
   const profiles = config.llm.profiles;
   if (!requested) {
-    const p = profiles[config.llm.activeName];
-    await api.replyMessage(message.id, `Current profile: ${config.llm.activeName} (${p?.provider}/${p?.model})\nAvailable: ${Object.keys(profiles).join(", ")}`);
+    const p = profiles[config.llm.activeProfile];
+    await api.replyMessage(message.id, `Current profile: ${config.llm.activeProfile} (${p?.provider}/${p?.model})\nAvailable: ${Object.keys(profiles).join(", ")}`);
     return;
   }
 
@@ -60,7 +60,7 @@ async function handleProfileCommand({ message, config, api }: ControlCommandCont
   }
 
   save(config.workspaceDir, requested);
-  config.llm.activeName = requested;
+  config.llm.activeProfile = requested;
 
   const p = profiles[requested];
   await api.replyMessage(message.id, `Switched to '${requested}' (${p.provider}/${p.model})`);

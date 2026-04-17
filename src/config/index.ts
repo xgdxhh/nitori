@@ -14,11 +14,10 @@ export interface AppConfig {
   };
   llm: {
     profiles: Record<string, LlmProfile>;
-    activeName: string;
+    activeProfile: string;
   };
   agent: {
     autoSendAssistantText: boolean;
-    sessionScope: "channel" | "global";
     hideSourceInfo: boolean;
     skills: { disabled: string[] };
     compaction: {
@@ -45,7 +44,7 @@ export interface LlmProfile {
 
 export interface SubagentConfig {
   prompt: string;
-  profile: string;
+  activeProfile: string;
   tools: {
     builtins: string[];
     mcp: string[];
@@ -72,7 +71,6 @@ const createLlmProfileSchema = () => v.object({
 
 const AgentSchema = v.object({
   autoSendAssistantText: v.optional(v.boolean(), false),
-  sessionScope: v.optional(v.union([v.literal("channel"), v.literal("global")]), "channel"),
   hideSourceInfo: v.optional(v.boolean(), false),
   skills: v.optional(v.object({
     disabled: v.optional(v.array(v.string()), []),
@@ -99,7 +97,7 @@ const SubagentToolsSchema = v.object({
 
 const SubagentConfigSchema = v.object({
   prompt: v.string(),
-  profile: v.string(),
+  activeProfile: v.string(),
   tools: v.optional(SubagentToolsSchema, { builtins: [], mcp: [] }),
   maxSteps: v.optional(v.number(), 10),
 });
@@ -114,9 +112,9 @@ export function loadConfig(): AppConfig {
     ingress: v.optional(IngressSchema, { host: "127.0.0.1", port: 0, token: "" }),
     llm: v.optional(v.object({
       profiles: v.optional(v.record(v.string(), createLlmProfileSchema()), {}),
-      profile: v.optional(v.string(), ""),
-    }), { profiles: {}, profile: "" }),
-    agent: v.optional(AgentSchema, { autoSendAssistantText: false, sessionScope: "channel", skills: { disabled: [] }, compaction: { enabled: true, reserveTokens: 16384 } }),
+      activeProfile: v.optional(v.string(), ""),
+    }), { profiles: {}, activeProfile: "" }),
+    agent: v.optional(AgentSchema, { autoSendAssistantText: false, skills: { disabled: [] }, compaction: { enabled: true, reserveTokens: 16384 } }),
     mcp: v.optional(v.record(v.string(), McpServerSchema), {}),
     subagents: v.optional(v.record(v.string(), SubagentConfigSchema), {}),
     extensions: v.optional(v.array(v.pipe(v.string(), v.regex(/^[a-z0-9-]+$/))), []),
@@ -125,12 +123,12 @@ export function loadConfig(): AppConfig {
 
   const parsed = v.parse(SettingsSchema, rawJson);
   const profiles = parsed.llm.profiles as Record<string, LlmProfile>;
-  const activeName = parsed.llm.profile || Object.keys(profiles)[0] || "";
+  const activeProfile = parsed.llm.activeProfile || Object.keys(profiles)[0] || "";
 
   return {
     ...parsed,
     workspaceDir: home,
-    llm: { profiles, activeName },
+    llm: { profiles, activeProfile },
     mcp: parsed.mcp as Record<string, McpServerConfig>,
     subagents: parsed.subagents as Record<string, SubagentConfig>,
   } as AppConfig;
@@ -168,7 +166,7 @@ export function saveActiveProfile(workspaceDir: string, profileName: string): vo
   const path = join(workspaceDir, "settings.json");
   const data = JSON.parse(readFileSync(path, "utf-8"));
   if (!data.llm) data.llm = {};
-  data.llm.profile = profileName;
+  data.llm.activeProfile = profileName;
   writeFileSync(path, JSON.stringify(data, null, 2), "utf-8");
 }
 

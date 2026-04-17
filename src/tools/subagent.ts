@@ -27,7 +27,7 @@ export function createSubagentTool(deps: SubagentDeps): Tool | null {
     }),
     execute: async ({ name, task }) => {
       const subConfig = deps.config.subagents[name];
-      const profile = deps.config.llm.profiles[subConfig.profile];
+      const profile = deps.config.llm.profiles[subConfig.activeProfile];
       const model = getModel(profile);
       const tools = await buildSubagentTools(subConfig.tools, deps.toolContext, deps.mcpManager);
 
